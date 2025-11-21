@@ -289,6 +289,7 @@ func (g *Generator) generateTerm(term ir.Terminator) error {
 func (g *Generator) valueReg(val ir.Value) string {
 	switch v := val.(type) {
 	case *ir.Const:
+		// For x86-64, we can use immediate values directly in most instructions
 		return fmt.Sprintf("$%d", v.Val)
 	case *ir.Temp:
 		if reg, ok := g.valRegs[v]; ok {
