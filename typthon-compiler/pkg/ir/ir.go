@@ -7,6 +7,16 @@ package ir
 // Program is the top-level IR container
 type Program struct {
 	Functions []*Function
+	Classes   []*Class
+}
+
+// Class represents a compiled class
+type Class struct {
+	Name    string
+	Bases   []string
+	Methods []*Function
+	Attrs   map[string]Type
+	VTable  []*Function // Virtual method table
 }
 
 // Function represents a compiled function
@@ -42,6 +52,45 @@ type Alloc struct {
 
 func (Alloc) inst() {}
 
+type AllocObject struct {
+	Dest      Value
+	ClassName string
+}
+
+func (AllocObject) inst() {}
+
+type GetAttr struct {
+	Dest Value
+	Obj  Value
+	Attr string
+}
+
+func (GetAttr) inst() {}
+
+type SetAttr struct {
+	Obj   Value
+	Attr  string
+	Value Value
+}
+
+func (SetAttr) inst() {}
+
+type GetItem struct {
+	Dest  Value
+	Obj   Value
+	Index Value
+}
+
+func (GetItem) inst() {}
+
+type SetItem struct {
+	Obj   Value
+	Index Value
+	Value Value
+}
+
+func (SetItem) inst() {}
+
 type Load struct {
 	Dest Value
 	Src  Value
@@ -72,6 +121,31 @@ type Call struct {
 }
 
 func (Call) inst() {}
+
+type MethodCall struct {
+	Dest   Value
+	Obj    Value
+	Method string
+	Args   []Value
+}
+
+func (MethodCall) inst() {}
+
+type MakeClosure struct {
+	Dest     Value
+	Function string
+	Captures []Value
+}
+
+func (MakeClosure) inst() {}
+
+type ClosureCall struct {
+	Dest    Value
+	Closure Value
+	Args    []Value
+}
+
+func (ClosureCall) inst() {}
 
 // Terminators
 type Return struct {
@@ -128,9 +202,50 @@ type IntType struct{}
 
 func (IntType) typ() {}
 
+type BoolType struct{}
+
+func (BoolType) typ() {}
+
 type FloatType struct{}
 
 func (FloatType) typ() {}
+
+type StringType struct{}
+
+func (StringType) typ() {}
+
+type ListType struct {
+	Elem Type
+}
+
+func (ListType) typ() {}
+
+type DictType struct {
+	Key   Type
+	Value Type
+}
+
+func (DictType) typ() {}
+
+type ClassType struct {
+	Name string
+}
+
+func (ClassType) typ() {}
+
+type FunctionType struct {
+	Params []Type
+	Return Type
+}
+
+func (FunctionType) typ() {}
+
+type ClosureType struct {
+	Function FunctionType
+	Captures []Type
+}
+
+func (ClosureType) typ() {}
 
 type PtrType struct {
 	Elem Type
@@ -147,6 +262,12 @@ const (
 	OpMul
 	OpDiv
 	OpEq
+	OpNe
 	OpLt
+	OpLe
 	OpGt
+	OpGe
+	OpAnd
+	OpOr
+	OpXor
 )

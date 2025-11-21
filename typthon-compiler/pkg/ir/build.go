@@ -34,16 +34,94 @@ func NewBuilder() *Builder {
 func (b *Builder) Build(module *frontend.Module) (*Program, error) {
 	logger.Debug("Building IR from AST", "statements", len(module.Body))
 	for _, stmt := range module.Body {
-		if fnDef, ok := stmt.(*frontend.FunctionDef); ok {
-			logger.Debug("Building function", "name", fnDef.Name)
-			if err := b.buildFunction(fnDef); err != nil {
-				logger.Error("Failed to build function", "name", fnDef.Name, "error", err)
+		switch s := stmt.(type) {
+		case *frontend.FunctionDef:
+			logger.Debug("Building function", "name", s.Name)
+			if err := b.buildFunction(s); err != nil {
+				logger.Error("Failed to build function", "name", s.Name, "error", err)
+				return nil, err
+			}
+		case *frontend.ClassDef:
+			logger.Debug("Building class", "name", s.Name)
+			if err := b.buildClass(s); err != nil {
+				logger.Error("Failed to build class", "name", s.Name, "error", err)
 				return nil, err
 			}
 		}
 	}
-	logger.Info("IR build complete", "functions", len(b.prog.Functions))
+	logger.Info("IR build complete", "functions", len(b.prog.Functions), "classes", len(b.prog.Classes))
 	return b.prog, nil
+}
+
+func (b *Builder) buildClass(classDef *frontend.ClassDef) error {
+	class := &Class{
+		Name:   classDef.Name,
+		Bases:  classDef.Bases,
+		Attrs:  make(map[string]Type),
+		VTable: make([]*Function, 0),
+	}
+
+	// Build class attributes
+	for _, attr := range classDef.Attrs {
+		// For now, assume int type
+		class.Attrs[attr.Target] = IntType{}
+	}
+
+	// Build methods
+	for _, method := range classDef.Methods {
+		fn := &Function{
+			Name:       classDef.Name + "_" + method.Name,
+			ReturnType: b.typeFromAnnotation(method.Return),
+		}
+
+		// Methods have implicit 'self' parameter
+		selfParam := &Param{
+			Name: "self",
+			Type: ClassType{Name: classDef.Name},
+		}
+		fn.Params = append(fn.Params, selfParam)
+
+		// Reset builder state for new function
+		b.locals = make(map[string]Value)
+		b.loopStack = nil
+		b.locals["self"] = selfParam
+
+		// Add other parameters
+		for _, param := range method.Params {
+			p := &Param{
+				Name: param.Name,
+				Type: b.typeFromAnnotation(param.Type),
+			}
+			fn.Params = append(fn.Params, p)
+			b.locals[param.Name] = p
+		}
+
+		b.currentFn = fn
+
+		// Create entry block
+		entry := b.newBlock("entry")
+		fn.Blocks = append(fn.Blocks, entry)
+		b.currentBl = entry
+
+		// Build method body
+		for _, stmt := range method.Body {
+			if err := b.buildStatement(stmt); err != nil {
+				return err
+			}
+		}
+
+		// Ensure last block has terminator
+		if b.currentBl != nil && b.currentBl.Term == nil {
+			b.currentBl.Term = &Return{Value: nil}
+		}
+
+		class.Methods = append(class.Methods, fn)
+		class.VTable = append(class.VTable, fn)
+		b.prog.Functions = append(b.prog.Functions, fn)
+	}
+
+	b.prog.Classes = append(b.prog.Classes, class)
+	return nil
 }
 
 func (b *Builder) buildFunction(fnDef *frontend.FunctionDef) error {
@@ -245,6 +323,56 @@ func (b *Builder) buildExpression(expr frontend.Expr) (Value, error) {
 			Args:     args,
 		})
 		return temp, nil
+
+	case *frontend.Attribute:
+		obj, err := b.buildExpression(e.Value)
+		if err != nil {
+			return nil, err
+		}
+
+		temp := b.newTemp(IntType{})
+		b.currentBl.Insts = append(b.currentBl.Insts, &GetAttr{
+			Dest: temp,
+			Obj:  obj,
+			Attr: e.Attr,
+		})
+		return temp, nil
+
+	case *frontend.Subscript:
+		obj, err := b.buildExpression(e.Value)
+		if err != nil {
+			return nil, err
+		}
+
+		index, err := b.buildExpression(e.Index)
+		if err != nil {
+			return nil, err
+		}
+
+		temp := b.newTemp(IntType{})
+		b.currentBl.Insts = append(b.currentBl.Insts, &GetItem{
+			Dest:  temp,
+			Obj:   obj,
+			Index: index,
+		})
+		return temp, nil
+
+	case *frontend.ListComp:
+		// Desugar list comprehension into loop
+		// [elt for target in iter if cond] becomes:
+		// result = []
+		// for target in iter:
+		//     if cond:
+		//         result.append(elt)
+		return b.buildListComp(e)
+
+	case *frontend.DictComp:
+		// Similar to list comp but for dicts
+		return b.buildDictComp(e)
+
+	case *frontend.Lambda:
+		// Lambda creates a closure
+		return b.buildLambda(e)
 
 	default:
 		return nil, fmt.Errorf("unsupported expression type: %T", expr)

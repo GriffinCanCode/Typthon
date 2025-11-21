@@ -21,20 +21,47 @@ const (
 
 	// Keywords
 	DEF
+	CLASS
 	RETURN
+	IF
+	ELIF
+	ELSE
+	WHILE
+	FOR
+	IN
+	BREAK
+	CONTINUE
+	PASS
+	TRUE
+	FALSE
+	LAMBDA
+	SELF
 
 	// Operators
 	PLUS
 	MINUS
 	STAR
 	SLASH
+	EQ     // ==
+	NE     // !=
+	LT     // <
+	LE     // <=
+	GT     // >
+	GE     // >=
+	AND    // and
+	OR     // or
+	NOT    // not
+	ASSIGN // =
 
 	// Delimiters
 	LPAREN
 	RPAREN
+	LBRACKET
+	RBRACKET
 	COLON
 	COMMA
 	ARROW
+	DOT
 )
 
 type Token struct {
@@ -122,6 +149,25 @@ func (l *Lexer) Next() Token {
 			return l.makeToken(COLON, ":")
 		case ',':
 			return l.makeToken(COMMA, ",")
+		case '=':
+			if l.match('=') {
+				return l.makeToken(EQ, "==")
+			}
+			return l.makeToken(ASSIGN, "=")
+		case '!':
+			if l.match('=') {
+				return l.makeToken(NE, "!=")
+			}
+		case '<':
+			if l.match('=') {
+				return l.makeToken(LE, "<=")
+			}
+			return l.makeToken(LT, "<")
+		case '>':
+			if l.match('=') {
+				return l.makeToken(GE, ">=")
+			}
+			return l.makeToken(GT, ">")
 		}
 
 		if unicode.IsDigit(c) {
@@ -220,6 +266,34 @@ func (l *Lexer) identifier() Token {
 		return l.makeToken(DEF, text)
 	case "return":
 		return l.makeToken(RETURN, text)
+	case "if":
+		return l.makeToken(IF, text)
+	case "elif":
+		return l.makeToken(ELIF, text)
+	case "else":
+		return l.makeToken(ELSE, text)
+	case "while":
+		return l.makeToken(WHILE, text)
+	case "for":
+		return l.makeToken(FOR, text)
+	case "in":
+		return l.makeToken(IN, text)
+	case "break":
+		return l.makeToken(BREAK, text)
+	case "continue":
+		return l.makeToken(CONTINUE, text)
+	case "pass":
+		return l.makeToken(PASS, text)
+	case "True":
+		return l.makeToken(TRUE, text)
+	case "False":
+		return l.makeToken(FALSE, text)
+	case "and":
+		return l.makeToken(AND, text)
+	case "or":
+		return l.makeToken(OR, text)
+	case "not":
+		return l.makeToken(NOT, text)
 	}
 
 	return l.makeToken(NAME, text)

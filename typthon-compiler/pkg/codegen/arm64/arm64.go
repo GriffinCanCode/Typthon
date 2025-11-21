@@ -9,6 +9,7 @@ import (
 	"io"
 
 	"github.com/GriffinCanCode/typthon-compiler/pkg/ir"
+	"github.com/GriffinCanCode/typthon-compiler/pkg/logger"
 	"github.com/GriffinCanCode/typthon-compiler/pkg/ssa"
 )
 
@@ -48,6 +49,12 @@ func (g *Generator) generateFunction(fn *ssa.Function) error {
 	g.regs.Reset()
 	g.valRegs = make(map[ir.Value]string)
 	g.stackOff = 0
+
+	instCount := 0
+	for _, block := range fn.Blocks {
+		instCount += len(block.Insts)
+	}
+	logger.LogCodeGen("arm64", fn.Name, instCount)
 
 	// Prologue
 	fmt.Fprintf(g.w, "\t.global _%s\n", fn.Name)
@@ -116,6 +123,35 @@ func (g *Generator) generateBinOp(binop *ir.BinOp) error {
 		fmt.Fprintf(g.w, "\tmul %s, %s, %s\n", destReg, leftReg, rightReg)
 	case ir.OpDiv:
 		fmt.Fprintf(g.w, "\tsdiv %s, %s, %s\n", destReg, leftReg, rightReg)
+
+	// Comparisons
+	case ir.OpEq:
+		fmt.Fprintf(g.w, "\tcmp %s, %s\n", leftReg, rightReg)
+		fmt.Fprintf(g.w, "\tcset %s, eq\n", destReg)
+	case ir.OpNe:
+		fmt.Fprintf(g.w, "\tcmp %s, %s\n", leftReg, rightReg)
+		fmt.Fprintf(g.w, "\tcset %s, ne\n", destReg)
+	case ir.OpLt:
+		fmt.Fprintf(g.w, "\tcmp %s, %s\n", leftReg, rightReg)
+		fmt.Fprintf(g.w, "\tcset %s, lt\n", destReg)
+	case ir.OpLe:
+		fmt.Fprintf(g.w, "\tcmp %s, %s\n", leftReg, rightReg)
+		fmt.Fprintf(g.w, "\tcset %s, le\n", destReg)
+	case ir.OpGt:
+		fmt.Fprintf(g.w, "\tcmp %s, %s\n", leftReg, rightReg)
+		fmt.Fprintf(g.w, "\tcset %s, gt\n", destReg)
+	case ir.OpGe:
+		fmt.Fprintf(g.w, "\tcmp %s, %s\n", leftReg, rightReg)
+		fmt.Fprintf(g.w, "\tcset %s, ge\n", destReg)
+
+	// Boolean operations
+	case ir.OpAnd:
+		fmt.Fprintf(g.w, "\tand %s, %s, %s\n", destReg, leftReg, rightReg)
+	case ir.OpOr:
+		fmt.Fprintf(g.w, "\torr %s, %s, %s\n", destReg, leftReg, rightReg)
+	case ir.OpXor:
+		fmt.Fprintf(g.w, "\teor %s, %s, %s\n", destReg, leftReg, rightReg)
+
 	default:
 		return fmt.Errorf("unsupported operation: %v", binop.Op)
 	}
@@ -185,7 +221,7 @@ func (g *Generator) generateTerm(term ir.Terminator) error {
 
 	case *ir.CondBranch:
 		condReg := g.valueReg(t.Cond)
-		fmt.Fprintf(g.w, "\tcmp %s, #0\n", condReg)
+		fmt.Fprintf(g.w, "\ttst %s, #1\n", condReg)
 		fmt.Fprintf(g.w, "\tb.ne .L%s\n", t.TrueBlock)
 		fmt.Fprintf(g.w, "\tb .L%s\n", t.FalseBlock)
 
@@ -200,6 +236,10 @@ func (g *Generator) generateTerm(term ir.Terminator) error {
 func (g *Generator) valueReg(val ir.Value) string {
 	switch v := val.(type) {
 	case *ir.Const:
+		// Check if already loaded
+		if reg, ok := g.valRegs[v]; ok {
+			return reg
+		}
 		// Load immediate into a register
 		reg := g.allocReg(v)
 		fmt.Fprintf(g.w, "\tmov %s, #%d\n", reg, v.Val)

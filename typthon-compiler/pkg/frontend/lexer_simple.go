@@ -70,10 +70,39 @@ func (l *SimpleLexer) NextToken() Token {
 		return Token{Type: LPAREN, Lexeme: "(", Line: l.line, Col: l.col - 1}
 	case ')':
 		return Token{Type: RPAREN, Lexeme: ")", Line: l.line, Col: l.col - 1}
+	case '[':
+		return Token{Type: LBRACKET, Lexeme: "[", Line: l.line, Col: l.col - 1}
+	case ']':
+		return Token{Type: RBRACKET, Lexeme: "]", Line: l.line, Col: l.col - 1}
 	case ':':
 		return Token{Type: COLON, Lexeme: ":", Line: l.line, Col: l.col - 1}
 	case ',':
 		return Token{Type: COMMA, Lexeme: ",", Line: l.line, Col: l.col - 1}
+	case '.':
+		return Token{Type: DOT, Lexeme: ".", Line: l.line, Col: l.col - 1}
+	case '=':
+		if l.peek() == '=' {
+			l.advance()
+			return Token{Type: EQ, Lexeme: "==", Line: l.line, Col: l.col - 2}
+		}
+		return Token{Type: ASSIGN, Lexeme: "=", Line: l.line, Col: l.col - 1}
+	case '!':
+		if l.peek() == '=' {
+			l.advance()
+			return Token{Type: NE, Lexeme: "!=", Line: l.line, Col: l.col - 2}
+		}
+	case '<':
+		if l.peek() == '=' {
+			l.advance()
+			return Token{Type: LE, Lexeme: "<=", Line: l.line, Col: l.col - 2}
+		}
+		return Token{Type: LT, Lexeme: "<", Line: l.line, Col: l.col - 1}
+	case '>':
+		if l.peek() == '=' {
+			l.advance()
+			return Token{Type: GE, Lexeme: ">=", Line: l.line, Col: l.col - 2}
+		}
+		return Token{Type: GT, Lexeme: ">", Line: l.line, Col: l.col - 1}
 	}
 
 	if unicode.IsDigit(c) {
@@ -167,8 +196,42 @@ func (l *SimpleLexer) scanIdentifier() Token {
 	switch text {
 	case "def":
 		typ = DEF
+	case "class":
+		typ = CLASS
 	case "return":
 		typ = RETURN
+	case "if":
+		typ = IF
+	case "elif":
+		typ = ELIF
+	case "else":
+		typ = ELSE
+	case "while":
+		typ = WHILE
+	case "for":
+		typ = FOR
+	case "lambda":
+		typ = LAMBDA
+	case "self":
+		typ = SELF
+	case "in":
+		typ = IN
+	case "break":
+		typ = BREAK
+	case "continue":
+		typ = CONTINUE
+	case "pass":
+		typ = PASS
+	case "True":
+		typ = TRUE
+	case "False":
+		typ = FALSE
+	case "and":
+		typ = AND
+	case "or":
+		typ = OR
+	case "not":
+		typ = NOT
 	}
 
 	return Token{
