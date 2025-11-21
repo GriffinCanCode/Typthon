@@ -1,8 +1,7 @@
-// String operations and regex support
+// String operations
 package stdlib
 
 import (
-	"regexp"
 	"strings"
 )
 
@@ -74,43 +73,7 @@ func StrCount(s, substr string) int64 {
 	return int64(strings.Count(s, substr))
 }
 
-// Regex operations
-
-// RegexMatch checks if string matches pattern
-func RegexMatch(pattern, s string) bool {
-	matched, err := regexp.MatchString(pattern, s)
-	if err != nil {
-		return false
-	}
-	return matched
-}
-
-// RegexFindAll finds all matches of pattern in string
-func RegexFindAll(pattern, s string) []string {
-	re, err := regexp.Compile(pattern)
-	if err != nil {
-		return nil
-	}
-	return re.FindAllString(s, -1)
-}
-
-// RegexReplace replaces all matches with replacement
-func RegexReplace(pattern, s, replacement string) string {
-	re, err := regexp.Compile(pattern)
-	if err != nil {
-		return s
-	}
-	return re.ReplaceAllString(s, replacement)
-}
-
-// RegexSplit splits string by regex pattern
-func RegexSplit(pattern, s string) []string {
-	re, err := regexp.Compile(pattern)
-	if err != nil {
-		return []string{s}
-	}
-	return re.Split(s, -1)
-}
+// Regex operations moved to regex.go for comprehensive implementation
 
 // Format operations
 

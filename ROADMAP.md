@@ -268,11 +268,13 @@ Core infrastructure and advanced features implemented!
 - [x] String type with core operations
 - [x] List type (dynamic arrays)
 - [x] Dict type (hash tables with Robin Hood hashing)
-- [x] String operations and regex (split, join, replace, find, regex matching)
+- [x] String operations (split, join, replace, find)
+- [x] Regex module (comprehensive pattern matching with compile caching, groups, replace)
 - [x] File I/O (open, read, write, readline, file operations)
 - [x] JSON parsing (parse, stringify, object/array builders)
-- [ ] HTTP client (future work)
-- [ ] Concurrent primitives (if supporting threading)
+- [x] HTTP client (GET, POST, PUT, DELETE, PATCH, headers, timeout, URL utilities)
+- [x] Async primitives (Future, Task, Channel, WaitGroup, Semaphore, async/await support)
+- [x] Advanced collections (OrderedDict, DefaultDict, Counter, Deque)
 - [x] Maintain compatibility with CPython stdlib where possible
 
 **3.5 Package Management & Distribution**
@@ -370,11 +372,15 @@ Core infrastructure and advanced features implemented!
 
 **Standard Library:**
 - ✅ Math operations (native Go implementations)
-- ✅ Collections utilities
+- ✅ Collections utilities (Range, basic collections)
+- ✅ Advanced collections (OrderedDict, DefaultDict, Counter, Deque)
 - ✅ Itertools (functional programming primitives)
-- ✅ String operations (split, join, replace, regex)
+- ✅ String operations (split, join, replace)
+- ✅ Regex module (comprehensive pattern matching with caching)
 - ✅ File I/O (complete file operations suite)
 - ✅ JSON parsing and serialization
+- ✅ HTTP client (full REST API support with timeout, headers)
+- ✅ Async primitives (Future, Task, Channel, WaitGroup, Semaphore)
 - ✅ Core builtins: print, len, range, str, isinstance
 
 **Runtime:**
