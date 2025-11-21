@@ -26,10 +26,12 @@ type Expr interface {
 
 // Statements
 type FunctionDef struct {
-	Name   string
-	Params []Param
-	Body   []Stmt
-	Return TypeAnnotation
+	Name        string
+	Params      []Param
+	Body        []Stmt
+	Return      TypeAnnotation
+	IsGenerator bool
+	Decorators  []string
 }
 
 func (FunctionDef) node() {}
@@ -98,6 +100,13 @@ type Pass struct{}
 
 func (Pass) node() {}
 func (Pass) stmt() {}
+
+type Yield struct {
+	Value Expr
+}
+
+func (Yield) node() {}
+func (Yield) stmt() {}
 
 type Assign struct {
 	Target string
@@ -216,6 +225,54 @@ type Subscript struct {
 
 func (Subscript) node() {}
 func (Subscript) expr() {}
+
+type Match struct {
+	Subject Expr
+	Cases   []MatchCase
+}
+
+func (Match) node() {}
+func (Match) stmt() {}
+
+type MatchCase struct {
+	Pattern Pattern
+	Guard   Expr
+	Body    []Stmt
+}
+
+type Pattern interface {
+	Node
+	pattern()
+}
+
+type LiteralPattern struct {
+	Value Expr
+}
+
+func (LiteralPattern) node()    {}
+func (LiteralPattern) pattern() {}
+
+type CapturePattern struct {
+	Name string
+}
+
+func (CapturePattern) node()    {}
+func (CapturePattern) pattern() {}
+
+type OrPattern struct {
+	Patterns []Pattern
+}
+
+func (OrPattern) node()    {}
+func (OrPattern) pattern() {}
+
+type ClassPattern struct {
+	Class string
+	Args  []Pattern
+}
+
+func (ClassPattern) node()    {}
+func (ClassPattern) pattern() {}
 
 // Supporting types
 type Param struct {

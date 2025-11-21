@@ -221,12 +221,42 @@ func (p *Parser) function() Stmt {
 		return nil
 	}
 
+	// Detect if function is a generator (contains yield)
+	isGenerator := containsYield(body)
+
 	return &FunctionDef{
-		Name:   name,
-		Params: params,
-		Body:   body,
-		Return: returnType,
+		Name:        name,
+		Params:      params,
+		Body:        body,
+		Return:      returnType,
+		IsGenerator: isGenerator,
+		Decorators:  nil, // Will be set by decorator parsing
 	}
+}
+
+func containsYield(stmts []Stmt) bool {
+	for _, stmt := range stmts {
+		if _, ok := stmt.(*Yield); ok {
+			return true
+		}
+		// Check nested structures
+		if ifStmt, ok := stmt.(*If); ok {
+			if containsYield(ifStmt.Then) || containsYield(ifStmt.Else) {
+				return true
+			}
+		}
+		if whileStmt, ok := stmt.(*While); ok {
+			if containsYield(whileStmt.Body) {
+				return true
+			}
+		}
+		if forStmt, ok := stmt.(*For); ok {
+			if containsYield(forStmt.Body) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (p *Parser) parameters() []Param {
@@ -283,6 +313,15 @@ func (p *Parser) statement() Stmt {
 		return &Return{Value: expr}
 	}
 
+	if p.match(YIELD) {
+		p.advance()
+		expr := p.expression()
+		if p.match(NEWLINE) {
+			p.advance()
+		}
+		return &Yield{Value: expr}
+	}
+
 	if p.match(IF) {
 		return p.ifStatement()
 	}
@@ -293,6 +332,10 @@ func (p *Parser) statement() Stmt {
 
 	if p.match(FOR) {
 		return p.forStatement()
+	}
+
+	if p.match(MATCH) {
+		return p.matchStatement()
 	}
 
 	if p.match(BREAK) {

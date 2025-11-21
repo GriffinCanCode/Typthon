@@ -29,9 +29,24 @@ func Optimize(prog *ir.Program, level int) *ir.Program {
 		// Level 3: Advanced
 		prog = EscapeAnalysis(prog)
 		prog = Devirtualize(prog)
+		prog = LoopUnroll(prog)
+		prog = LoopVectorize(prog)
 	}
 
 	logger.Info("Optimization complete", "level", level)
+	return prog
+}
+
+// OptimizeWithProfile applies optimizations using runtime profile
+func OptimizeWithProfile(prog *ir.Program, profilePath string, level int) *ir.Program {
+	// Apply standard optimizations first
+	prog = Optimize(prog, level)
+
+	// Apply profile-guided optimizations
+	if profilePath != "" {
+		prog = ApplyPGO(prog, profilePath)
+	}
+
 	return prog
 }
 

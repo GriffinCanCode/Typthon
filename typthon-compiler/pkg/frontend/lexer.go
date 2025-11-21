@@ -23,6 +23,7 @@ const (
 	DEF
 	CLASS
 	RETURN
+	YIELD
 	IF
 	ELIF
 	ELSE
@@ -32,6 +33,8 @@ const (
 	BREAK
 	CONTINUE
 	PASS
+	MATCH
+	CASE
 	TRUE
 	FALSE
 	LAMBDA

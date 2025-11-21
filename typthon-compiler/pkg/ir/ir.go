@@ -21,10 +21,12 @@ type Class struct {
 
 // Function represents a compiled function
 type Function struct {
-	Name       string
-	Params     []*Param
-	ReturnType Type
-	Blocks     []*Block
+	Name        string
+	Params      []*Param
+	ReturnType  Type
+	Blocks      []*Block
+	IsGenerator bool
+	Decorators  []string
 }
 
 // Block is a basic block - straight-line code ending in a terminator
@@ -147,6 +149,54 @@ type ClosureCall struct {
 
 func (ClosureCall) inst() {}
 
+type Yield struct {
+	Value Value
+}
+
+func (Yield) inst() {}
+
+type MatchJump struct {
+	Subject Value
+	Cases   []MatchCase
+}
+
+func (MatchJump) inst() {}
+
+type MatchCase struct {
+	Pattern     Pattern
+	Guard       Value
+	TargetBlock string
+}
+
+type Pattern interface {
+	pattern()
+}
+
+type LiteralPattern struct {
+	Value Value
+}
+
+func (LiteralPattern) pattern() {}
+
+type CapturePattern struct {
+	Name string
+}
+
+func (CapturePattern) pattern() {}
+
+type OrPattern struct {
+	Patterns []Pattern
+}
+
+func (OrPattern) pattern() {}
+
+type ClassPattern struct {
+	ClassName string
+	Args      []Pattern
+}
+
+func (ClassPattern) pattern() {}
+
 // Terminators
 type Return struct {
 	Value Value
@@ -246,6 +296,27 @@ type ClosureType struct {
 }
 
 func (ClosureType) typ() {}
+
+type GeneratorType struct {
+	Yield  Type
+	Send   Type
+	Return Type
+}
+
+func (GeneratorType) typ() {}
+
+type UnionType struct {
+	Types []Type
+}
+
+func (UnionType) typ() {}
+
+type GenericType struct {
+	Name   string
+	Params []Type
+}
+
+func (GenericType) typ() {}
 
 type PtrType struct {
 	Elem Type

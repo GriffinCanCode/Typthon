@@ -200,6 +200,8 @@ func (l *SimpleLexer) scanIdentifier() Token {
 		typ = CLASS
 	case "return":
 		typ = RETURN
+	case "yield":
+		typ = YIELD
 	case "if":
 		typ = IF
 	case "elif":
@@ -222,6 +224,10 @@ func (l *SimpleLexer) scanIdentifier() Token {
 		typ = CONTINUE
 	case "pass":
 		typ = PASS
+	case "match":
+		typ = MATCH
+	case "case":
+		typ = CASE
 	case "True":
 		typ = TRUE
 	case "False":
