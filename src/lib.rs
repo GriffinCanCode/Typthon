@@ -16,7 +16,7 @@ mod typthon_core;
 // Re-export everything from typthon-core
 pub use typthon_core::*;
 
-// Include typhon Python package API (directory is called typhton)
+// Include typthon Python package API (directory is called typhton)
 #[path = "typhton/lib.rs"]
-pub mod typhon;
+pub mod typthon;
 

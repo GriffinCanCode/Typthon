@@ -30,6 +30,8 @@ pub struct TypeChecker {
     bi_infer: BiInfer,
     constraints: ConstraintSolver,
     variance: VarianceAnalyzer,
+    class_attributes: std::collections::HashMap<String, std::collections::HashMap<String, Type>>,
+    current_class: Option<String>,
 }
 
 impl TypeChecker {
@@ -45,6 +47,8 @@ impl TypeChecker {
             refinements: RefinementAnalyzer::new(),
             constraints: ConstraintSolver::new(),
             variance: VarianceAnalyzer::new(),
+            class_attributes: std::collections::HashMap::new(),
+            current_class: None,
         }
     }
 
@@ -58,6 +62,8 @@ impl TypeChecker {
             refinements: RefinementAnalyzer::new(),
             constraints: ConstraintSolver::new(),
             variance: VarianceAnalyzer::new(),
+            class_attributes: std::collections::HashMap::new(),
+            current_class: None,
         }
     }
 
@@ -149,23 +155,78 @@ impl TypeChecker {
                 let value_type = self.infer_expr(&assign.value);
 
                 for target in &assign.targets {
-                    if let Expr::Name(name_expr) = target {
-                        // Check if there's an annotation
-                        if let Some(ann_type) = self.ctx.get_type(&name_expr.id) {
-                            // Use bidirectional checking with expected type
-                            if !self.bi_infer.check(&assign.value, &ann_type) {
-                                self.errors.push(TypeError {
-                                    message: format!("Type mismatch in assignment to {}", name_expr.id),
-                                    line: 0,
-                                    col: 0,
-                                });
+                    match target {
+                        Expr::Name(name_expr) => {
+                            // Check if there's an annotation
+                            if let Some(ann_type) = self.ctx.get_type(&name_expr.id) {
+                                // Use bidirectional checking with expected type
+                                if !self.bi_infer.check(&assign.value, &ann_type) {
+                                    self.errors.push(TypeError {
+                                        message: format!("Type mismatch in assignment to {}", name_expr.id),
+                                        line: 0,
+                                        col: 0,
+                                    });
+                                }
+                                // Add constraint for solver (subtype constraint)
+                                self.constraints.add_constraint(Constraint::Subtype(value_type.clone(), ann_type));
+                            } else {
+                                self.ctx.set_type(name_expr.id.to_string(), value_type.clone());
                             }
-                            // Add constraint for solver (subtype constraint)
-                            self.constraints.add_constraint(Constraint::Subtype(value_type.clone(), ann_type));
+                        }
+                        Expr::Attribute(attr) => {
+                            // Track class attribute assignments (self.x = value)
+                            if let Expr::Name(base) = &*attr.value {
+                                if base.id.as_str() == "self" {
+                                    if let Some(class_name) = &self.current_class {
+                                        if let Some(attrs) = self.class_attributes.get_mut(class_name) {
+                                            attrs.insert(attr.attr.to_string(), value_type.clone());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            Stmt::AnnAssign(ann_assign) => {
+                // Handle annotated assignments: x: int = value
+                let ann_type = self.type_from_annotation(&ann_assign.annotation);
+
+                if let Some(value) = &ann_assign.value {
+                    let value_type = self.infer_expr(value);
+
+                    // Check type compatibility
+                    if !self.is_compatible(&value_type, &ann_type) {
+                        if let Expr::Name(name_expr) = &*ann_assign.target {
+                            self.errors.push(TypeError {
+                                message: format!(
+                                    "Type mismatch: cannot assign {} to variable '{}' of type {}",
+                                    value_type, name_expr.id, ann_type
+                                ),
+                                line: 0,
+                                col: 0,
+                            });
                         } else {
-                            self.ctx.set_type(name_expr.id.to_string(), value_type.clone());
+                            self.errors.push(TypeError {
+                                message: format!(
+                                    "Type mismatch: cannot assign {} to type {}",
+                                    value_type, ann_type
+                                ),
+                                line: 0,
+                                col: 0,
+                            });
                         }
                     }
+
+                    // Add constraint
+                    self.constraints.add_constraint(Constraint::Subtype(value_type, ann_type.clone()));
+                }
+
+                // Register the variable with its annotation type
+                if let Expr::Name(name_expr) = &*ann_assign.target {
+                    self.ctx.set_type(name_expr.id.to_string(), ann_type);
                 }
             }
 
@@ -180,6 +241,35 @@ impl TypeChecker {
 
             Stmt::Expr(expr_stmt) => {
                 self.infer_expr(&expr_stmt.value);
+            }
+
+            Stmt::Import(_) | Stmt::ImportFrom(_) => {
+                // Import statements are valid, no type checking needed
+                // Types from typing module are handled in type_from_annotation
+            }
+
+            Stmt::ClassDef(class_def) => {
+                // Register class type
+                let class_type = Type::Class(class_def.name.to_string());
+                self.ctx.set_type(class_def.name.to_string(), class_type);
+
+                // Track current class for attribute resolution
+                let prev_class = self.current_class.clone();
+                self.current_class = Some(class_def.name.to_string());
+                self.class_attributes.insert(class_def.name.to_string(), std::collections::HashMap::new());
+
+                // Check class body
+                for stmt in &class_def.body {
+                    self.check_stmt(stmt);
+                }
+
+                // Restore previous class context
+                self.current_class = prev_class;
+            }
+
+            Stmt::If(_) | Stmt::While(_) | Stmt::For(_) | Stmt::With(_) => {
+                // Control flow statements - basic traversal
+                // Full implementation would track branches for type narrowing
             }
 
             _ => {}
@@ -214,15 +304,76 @@ impl TypeChecker {
                 let left_ty = self.infer_expr(&binop.left);
                 let right_ty = self.infer_expr(&binop.right);
 
-                // Simplified: assume numeric operations
-                if left_ty == Type::Int && right_ty == Type::Int {
-                    Type::Int
-                } else if matches!(left_ty, Type::Int | Type::Float)
-                    && matches!(right_ty, Type::Int | Type::Float) {
-                    Type::Float
-                } else {
-                    Type::Any
+                use rustpython_parser::ast::Operator as Op;
+                match binop.op {
+                    // Addition
+                    Op::Add => {
+                        if left_ty == Type::Int && right_ty == Type::Int {
+                            Type::Int
+                        } else if matches!(left_ty, Type::Int | Type::Float)
+                            && matches!(right_ty, Type::Int | Type::Float) {
+                            Type::Float
+                        } else if left_ty == Type::Str && right_ty == Type::Str {
+                            Type::Str  // String concatenation
+                        } else if matches!(left_ty, Type::List(_)) && matches!(right_ty, Type::List(_)) {
+                            left_ty  // List concatenation
+                        } else {
+                            Type::Any
+                        }
+                    }
+                    // Multiplication
+                    Op::Mult => {
+                        if left_ty == Type::Int && right_ty == Type::Int {
+                            Type::Int
+                        } else if matches!(left_ty, Type::Int | Type::Float)
+                            && matches!(right_ty, Type::Int | Type::Float) {
+                            Type::Float
+                        } else if (left_ty == Type::Str && right_ty == Type::Int) ||
+                                  (left_ty == Type::Int && right_ty == Type::Str) {
+                            Type::Str  // String repetition
+                        } else {
+                            Type::Any
+                        }
+                    }
+                    // Subtraction, Modulo, Power
+                    Op::Sub | Op::Mod | Op::Pow => {
+                        if left_ty == Type::Int && right_ty == Type::Int {
+                            Type::Int
+                        } else if matches!(left_ty, Type::Int | Type::Float)
+                            && matches!(right_ty, Type::Int | Type::Float) {
+                            Type::Float
+                        } else {
+                            Type::Any
+                        }
+                    }
+                    // Division always returns float
+                    Op::Div => Type::Float,
+                    // Floor division returns int
+                    Op::FloorDiv => Type::Int,
+                    _ => Type::Any,
                 }
+            }
+
+            Expr::Compare(_compare) => {
+                // All comparisons return bool (==, !=, <, >, <=, >=, in, not in, is, is not)
+                Type::Bool
+            }
+
+            Expr::UnaryOp(unary) => {
+                use rustpython_parser::ast::UnaryOp as UOp;
+                match unary.op {
+                    UOp::Not => Type::Bool,
+                    UOp::UAdd | UOp::USub => {
+                        let operand_ty = self.infer_expr(&unary.operand);
+                        operand_ty  // +x and -x preserve type
+                    }
+                    UOp::Invert => Type::Int,  // ~x for bitwise inversion
+                }
+            }
+
+            Expr::BoolOp(_bool_op) => {
+                // and, or operations return bool
+                Type::Bool
             }
 
             Expr::List(list_expr) => {
@@ -232,6 +383,35 @@ impl TypeChecker {
                     let elem_types: Vec<Type> = list_expr.elts.iter().map(|e| self.infer_expr(e)).collect();
                     let unified = Type::union(elem_types);
                     Type::List(Box::new(unified))
+                }
+            }
+
+            Expr::ListComp(list_comp) => {
+                // Infer type of list comprehension from element expression
+                let elem_type = self.infer_expr(&list_comp.elt);
+                Type::List(Box::new(elem_type))
+            }
+
+            Expr::DictComp(dict_comp) => {
+                // Infer type of dict comprehension
+                let key_type = self.infer_expr(&dict_comp.key);
+                let value_type = self.infer_expr(&dict_comp.value);
+                Type::Dict(Box::new(key_type), Box::new(value_type))
+            }
+
+            Expr::SetComp(set_comp) => {
+                // Infer type of set comprehension
+                let elem_type = self.infer_expr(&set_comp.elt);
+                Type::Set(Box::new(elem_type))
+            }
+
+            Expr::Set(set_expr) => {
+                if set_expr.elts.is_empty() {
+                    Type::Set(Box::new(self.ctx.fresh_var()))
+                } else {
+                    let elem_types: Vec<Type> = set_expr.elts.iter().map(|e| self.infer_expr(e)).collect();
+                    let unified = Type::union(elem_types);
+                    Type::Set(Box::new(unified))
                 }
             }
 
@@ -271,35 +451,127 @@ impl TypeChecker {
                 }
             }
 
+            Expr::Subscript(subscript_expr) => {
+                // Handle indexing: list[i], dict[key], tuple[i]
+                let value_ty = self.infer_expr(&subscript_expr.value);
+
+                match value_ty {
+                    Type::List(elem_ty) => *elem_ty,
+                    Type::Dict(_, val_ty) => *val_ty,
+                    Type::Tuple(types) => {
+                        // For tuple indexing, if we can determine the index statically, return that type
+                        // Otherwise, return union of all types
+                        if types.is_empty() {
+                            Type::Any
+                        } else if types.len() == 1 {
+                            types[0].clone()
+                        } else {
+                            Type::union(types)
+                        }
+                    }
+                    Type::Str => Type::Str,  // String indexing returns str
+                    _ => self.ctx.fresh_var(),
+                }
+            }
+
             Expr::Attribute(attr_expr) => {
                 let value_ty = self.infer_expr(&attr_expr.value);
 
-                // Lookup attribute
+                // For class types, look up in class_attributes
+                if let Type::Class(class_name) = &value_ty {
+                    if let Some(attrs) = self.class_attributes.get(class_name) {
+                        if let Some(attr_ty) = attrs.get(attr_expr.attr.as_str()) {
+                            return attr_ty.clone();
+                        }
+                    }
+                }
+
+                // Otherwise, lookup attribute from context
                 self.ctx.has_attribute(&value_ty, &attr_expr.attr)
                     .unwrap_or_else(|| {
-                        // Generate error with suggestions
-                        let available = self.ctx.get_attributes(&value_ty);
-                        let similar = crate::compiler::errors::find_similar_names(&attr_expr.attr, &available, 2);
+                        // Don't generate error for class types - attributes might be set dynamically
+                        if matches!(value_ty, Type::Class(_)) {
+                            self.ctx.fresh_var()
+                        } else {
+                            // Generate error with suggestions for non-class types
+                            let available = self.ctx.get_attributes(&value_ty);
+                            let similar = crate::compiler::errors::find_similar_names(&attr_expr.attr, &available, 2);
 
-                        let mut msg = format!(
-                            "Type '{}' has no attribute '{}'",
-                            value_ty, attr_expr.attr
-                        );
-                        if !similar.is_empty() {
-                            msg.push_str(&format!(". Did you mean: {}?", similar.join(", ")));
+                            let mut msg = format!(
+                                "Type '{}' has no attribute '{}'",
+                                value_ty, attr_expr.attr
+                            );
+                            if !similar.is_empty() {
+                                msg.push_str(&format!(". Did you mean: {}?", similar.join(", ")));
+                            }
+
+                            self.errors.push(TypeError {
+                                message: msg,
+                                line: 0,
+                                col: 0,
+                            });
+
+                            self.ctx.fresh_var()
                         }
-
-                        self.errors.push(TypeError {
-                            message: msg,
-                            line: 0,
-                            col: 0,
-                        });
-
-                        self.ctx.fresh_var()
                     })
             }
 
             _ => Type::Any,
+        }
+    }
+
+    fn is_compatible(&self, actual: &Type, expected: &Type) -> bool {
+        // Check if actual type is compatible with expected type
+        match (actual, expected) {
+            // Exact matches
+            (Type::Int, Type::Int) => true,
+            (Type::Float, Type::Float) => true,
+            (Type::Str, Type::Str) => true,
+            (Type::Bool, Type::Bool) => true,
+            (Type::Bytes, Type::Bytes) => true,
+            (Type::None, Type::None) => true,
+            (Type::Any, _) | (_, Type::Any) => true,
+
+            // Int is compatible with Float (subtyping)
+            (Type::Int, Type::Float) => true,
+
+            // Collection types
+            (Type::List(a), Type::List(b)) => self.is_compatible(a, b),
+            (Type::Set(a), Type::Set(b)) => self.is_compatible(a, b),
+            (Type::Dict(ka, va), Type::Dict(kb, vb)) => {
+                self.is_compatible(ka, kb) && self.is_compatible(va, vb)
+            }
+            (Type::Tuple(ta), Type::Tuple(tb)) => {
+                ta.len() == tb.len() &&
+                ta.iter().zip(tb.iter()).all(|(a, b)| self.is_compatible(a, b))
+            }
+
+            // Function types
+            (Type::Function(pa, ra), Type::Function(pb, rb)) => {
+                pa.len() == pb.len() &&
+                pa.iter().zip(pb.iter()).all(|(a, b)| self.is_compatible(a, b)) &&
+                self.is_compatible(ra, rb)
+            }
+
+            // Union types - actual must be one of the expected union members
+            (actual, Type::Union(expected_types)) => {
+                expected_types.iter().any(|t| self.is_compatible(actual, t))
+            }
+
+            // Class types
+            (Type::Class(a), Type::Class(b)) => a == b,
+
+            // Generic types
+            (Type::Generic(na, ta), Type::Generic(nb, tb)) => {
+                na == nb && ta.len() == tb.len() &&
+                ta.iter().zip(tb.iter()).all(|(a, b)| self.is_compatible(a, b))
+            }
+
+            // Type variables are always compatible (will be resolved by constraint solver)
+            (Type::Var(_), _) | (_, Type::Var(_)) => true,
+
+            // Default: incompatible
+            _ => false,
         }
     }
 
@@ -325,6 +597,23 @@ impl TypeChecker {
                     match name_expr.id.as_str() {
                         "list" | "List" => Type::List(Box::new(self.type_from_annotation(&subscript.slice))),
                         "set" | "Set" => Type::Set(Box::new(self.type_from_annotation(&subscript.slice))),
+                        "tuple" | "Tuple" => {
+                            // Handle tuple type annotations
+                            if let Expr::Tuple(tuple_expr) = &*subscript.slice {
+                                // Empty tuple: tuple[()] or tuple with elements
+                                if tuple_expr.elts.is_empty() {
+                                    Type::Tuple(vec![])
+                                } else {
+                                    let types = tuple_expr.elts.iter()
+                                        .map(|e| self.type_from_annotation(e))
+                                        .collect();
+                                    Type::Tuple(types)
+                                }
+                            } else {
+                                // Single element tuple or error - treat as single element
+                                Type::Tuple(vec![self.type_from_annotation(&subscript.slice)])
+                            }
+                        }
                         "dict" | "Dict" => {
                             if let Expr::Tuple(tuple_expr) = &*subscript.slice {
                                 if tuple_expr.elts.len() == 2 {
@@ -335,6 +624,23 @@ impl TypeChecker {
                                 }
                             }
                             Type::Dict(Box::new(Type::Any), Box::new(Type::Any))
+                        }
+                        "Union" => {
+                            // Handle Union[T1, T2, ...] from typing
+                            if let Expr::Tuple(tuple_expr) = &*subscript.slice {
+                                let types = tuple_expr.elts.iter()
+                                    .map(|e| self.type_from_annotation(e))
+                                    .collect();
+                                Type::Union(types)
+                            } else {
+                                // Single type in Union
+                                Type::Union(vec![self.type_from_annotation(&subscript.slice)])
+                            }
+                        }
+                        "Optional" => {
+                            // Optional[T] is Union[T, None]
+                            let inner_type = self.type_from_annotation(&subscript.slice);
+                            Type::Union(vec![inner_type, Type::None])
                         }
                         // Advanced type annotations
                         "EffectType" => {

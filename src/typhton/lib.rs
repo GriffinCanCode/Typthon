@@ -237,7 +237,8 @@ fn get_metrics_py() -> PyResult<std::collections::HashMap<String, String>> {
     let uptime = SystemTime::now().duration_since(*start).unwrap_or_default();
 
     let mut result = std::collections::HashMap::new();
-    result.insert("uptime_secs".to_string(), uptime.as_secs().to_string());
+    result.insert("uptime".to_string(), uptime.as_secs().to_string());
+    result.insert("uptime_secs".to_string(), uptime.as_secs().to_string());  // Keep both for compatibility
     result.insert("gc_collections".to_string(), GC_COUNT.load(Ordering::Relaxed).to_string());
     result.insert("heap_allocated".to_string(), HEAP_ALLOCATED.load(Ordering::Relaxed).to_string());
     result.insert("cache_hits".to_string(), CACHE_HITS.load(Ordering::Relaxed).to_string());
@@ -248,7 +249,7 @@ fn get_metrics_py() -> PyResult<std::collections::HashMap<String, String>> {
 
 #[cfg(feature = "python")]
 #[pymodule]
-fn typhon(_py: Python, m: &PyModule) -> PyResult<()> {
+fn typthon(_py: Python, m: &PyModule) -> PyResult<()> {
     // Type checking and inference
     m.add_function(wrap_pyfunction!(check_file_py, m)?)?;
     m.add_function(wrap_pyfunction!(infer_types_py, m)?)?;

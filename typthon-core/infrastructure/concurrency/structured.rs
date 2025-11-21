@@ -49,7 +49,7 @@ impl TaskScope {
             future.await;
         });
 
-        self.handles.lock().push(handle);* GIT COMMIT: Targetedly stage all affected files with these changes and write a commit message for these changes, but first, read my git log to understand my syntax for this project on commit messages and match it exactly. Either feat or fix. ONLY STAGE YOUR EDITS NOT OTHERS, IF FILES ARE ALREADY STAGED SAY THAT AND DO NOT CONTINUE. Keep it brief, under 50 words. DO NOT DO ANYTHING BUT READ THEN WRITE THE MESSAGE NO RESETS.
+        self.handles.lock().push(handle);
 
     }
 
@@ -268,4 +268,3 @@ mod tests {
         assert!(token.is_cancelled());
     }
 }
-
