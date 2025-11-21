@@ -35,17 +35,18 @@ pub use compiler::{
 
 pub use infrastructure::{
     // Core infrastructure
-    IncrementalEngine, DependencyGraph, ResultCache, ParallelAnalyzer,
+    IncrementalEngine, DependencyGraph, ResultCache,
+    // ParallelAnalyzer,  // Temporarily disabled
     PerformanceMetrics, LogConfig, LogFormat, LogOutput, init_logging,
     init_dev_logging, init_prod_logging,
 
-    // Advanced concurrency
-    Actor, ActorAddr, ActorSystem, ActorId, ActorError, Message,
-    Supervisor, SupervisionStrategy,
-    TaskScope, Nursery, CancellationToken, scoped, scoped_with_limit,
-    FileCache, BatchFileReader, FileWatcher, BufferedWriter,
-    TypeCheckingDatabase, CompilerDatabase, QueryCoordinator, QueryStats,
-    Stage, Pipeline, PipelineHandle, AsyncPipeline, CompilerPipeline, CompilerStage,
-    BufferedPipeline, ControlledPipeline, FlowControl,
+    // Advanced concurrency (temporarily disabled due to compilation errors)
+    // Actor, ActorAddr, ActorSystem, ActorId, ActorError, Message,
+    // Supervisor, SupervisionStrategy,
+    // TaskScope, Nursery, CancellationToken, scoped, scoped_with_limit,
+    // FileCache, BatchFileReader, FileWatcher, BufferedWriter,
+    // TypeCheckingDatabase, CompilerDatabase, QueryCoordinator, QueryStats,
+    // Stage, Pipeline, PipelineHandle, AsyncPipeline, CompilerPipeline, CompilerStage,
+    // BufferedPipeline, ControlledPipeline, FlowControl,
 };
 

@@ -25,6 +25,17 @@ classifiers = [
 
 dependencies = []
 
+[project.urls]
+Homepage = "https://github.com/griffinstrier/Typthon"
+Repository = "https://github.com/griffinstrier/Typthon"
+Documentation = "https://github.com/griffinstrier/Typthon/blob/main/README.md"
+Issues = "https://github.com/griffinstrier/Typthon/issues"
+
+[project.scripts]
+typthon = "typthon.cli:main"
+typthon-compile = "typthon.compiler:main"
+typthon-lsp = "typthon.lsp:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4.0",
@@ -32,6 +43,9 @@ dev = [
     "mypy>=1.7.0",
     "ruff>=0.1.0",
 ]
+compiler = []
+lsp = []
+full = ["typthon[compiler,lsp]"]
 
 [tool.maturin]
 python-source = "typthon-core/runtime/python"
