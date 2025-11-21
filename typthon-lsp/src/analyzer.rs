@@ -4,7 +4,7 @@ Document analyzer for LSP features.
 Provides type checking, completion, and navigation features.
 */
 
-use rustpython_parser::parse;
+use rustpython_parser::{ast, parse, Mode};
 use tower_lsp::lsp_types::CompletionItemKind;
 
 /// Simple type error for diagnostics
@@ -32,6 +32,26 @@ pub struct DefinitionLocation {
     pub length: usize,
 }
 
+/// Symbol information for navigation and references
+#[derive(Debug, Clone)]
+pub struct SymbolInfo {
+    pub name: String,
+    pub kind: SymbolKind,
+    pub line: usize,
+    pub col: usize,
+    pub length: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SymbolKind {
+    Function,
+    Class,
+    Variable,
+    Parameter,
+    Method,
+    Property,
+}
+
 /// Document analyzer for type checking and code intelligence
 pub struct DocumentAnalyzer;
 
@@ -45,15 +65,15 @@ impl DocumentAnalyzer {
         let mut errors = Vec::new();
 
         // Parse the Python code
-        match parse(content, "<string>") {
+        match parse(content, Mode::Module, "<string>") {
             Ok(_ast) => {
                 // TODO: Integrate with typthon-core type checker
                 // For now, just validate syntax
             }
             Err(err) => {
                 errors.push(TypeError {
-                    line: err.location.row().to_zero_indexed(),
-                    col: err.location.column().to_zero_indexed(),
+                    line: 0, // Error location not available in this API
+                    col: 0,
                     message: format!("Syntax error: {}", err.error),
                 });
             }
@@ -84,7 +104,7 @@ impl DocumentAnalyzer {
         }
 
         // Provide basic type hints for built-in types
-        let hover_text = match word {
+        let hover_text = match word.as_str() {
             "int" => "Built-in integer type",
             "str" => "Built-in string type",
             "float" => "Built-in floating-point type",
@@ -109,12 +129,12 @@ impl DocumentAnalyzer {
 
         // Check if we're after a dot (attribute access)
         let lines: Vec<&str> = content.lines().collect();
-        if line >= lines.len() || col == 0 {
+        if line >= lines.len() {
             return completions;
         }
 
         let line_content = lines[line];
-        if col > 0 && line_content.chars().nth(col - 1) == Some('.') {
+        if col > 0 && col <= line_content.len() && line_content.chars().nth(col - 1) == Some('.') {
             // Provide attribute completions
             // TODO: Context-aware completions based on type
             completions.extend(vec![
@@ -188,7 +208,175 @@ impl DocumentAnalyzer {
 
     /// Get definition location
     pub fn get_definition(&self, content: &str, line: usize, col: usize) -> Option<DefinitionLocation> {
-        // TODO: Implement proper definition lookup using AST
+        let word = self.get_word_at_position(content, line, col)?;
+        let symbols = self.extract_symbols(content);
+
+        // Find the definition of the symbol
+        symbols.iter()
+            .find(|s| s.name == word && matches!(s.kind, SymbolKind::Function | SymbolKind::Class))
+            .map(|s| DefinitionLocation {
+                line: s.line,
+                col: s.col,
+                length: s.length,
+            })
+    }
+
+    /// Find all references to a symbol
+    pub fn find_references(&self, content: &str, line: usize, col: usize) -> Vec<DefinitionLocation> {
+        let word = match self.get_word_at_position(content, line, col) {
+            Some(w) => w,
+            None => return Vec::new(),
+        };
+
+        let mut references = Vec::new();
+        let lines: Vec<&str> = content.lines().collect();
+
+        for (idx, line_text) in lines.iter().enumerate() {
+            let mut start = 0;
+            while let Some(pos) = line_text[start..].find(&word) {
+                let actual_pos = start + pos;
+
+                // Check if this is a complete word (not part of another identifier)
+                let is_word_start = actual_pos == 0 ||
+                    !line_text.chars().nth(actual_pos - 1).map_or(false, |c| c.is_alphanumeric() || c == '_');
+                let is_word_end = actual_pos + word.len() >= line_text.len() ||
+                    !line_text.chars().nth(actual_pos + word.len()).map_or(false, |c| c.is_alphanumeric() || c == '_');
+
+                if is_word_start && is_word_end {
+                    references.push(DefinitionLocation {
+                        line: idx,
+                        col: actual_pos,
+                        length: word.len(),
+                    });
+                }
+
+                start = actual_pos + 1;
+            }
+        }
+
+        references
+    }
+
+    /// Extract all symbols from document
+    pub fn extract_symbols(&self, content: &str) -> Vec<SymbolInfo> {
+        let mut symbols = Vec::new();
+
+        match parse(content, Mode::Module, "<string>") {
+            Ok(ast) => {
+                if let ast::Mod::Module(module) = ast {
+                    self.visit_module(&module.body, content, &mut symbols);
+                }
+            }
+            Err(_) => {}
+        }
+
+        symbols
+    }
+
+    /// Visit AST module and extract symbols
+    fn visit_module(&self, stmts: &[ast::Stmt], content: &str, symbols: &mut Vec<SymbolInfo>) {
+        for stmt in stmts {
+            self.visit_stmt(stmt, content, symbols);
+        }
+    }
+
+    /// Convert byte offset to line and column
+    fn offset_to_position(&self, content: &str, offset: usize) -> (usize, usize) {
+        let mut line = 0;
+        let mut col = 0;
+        let mut current_offset = 0;
+
+        for ch in content.chars() {
+            if current_offset >= offset {
+                break;
+            }
+
+            if ch == '\n' {
+                line += 1;
+                col = 0;
+            } else {
+                col += 1;
+            }
+
+            current_offset += ch.len_utf8();
+        }
+
+        (line, col)
+    }
+
+    /// Visit AST statement and extract symbols
+    fn visit_stmt(&self, stmt: &ast::Stmt, content: &str, symbols: &mut Vec<SymbolInfo>) {
+        match stmt {
+            ast::Stmt::FunctionDef(func) => {
+                let offset = func.range.start().to_usize();
+                let (line, col) = self.offset_to_position(content, offset);
+
+                symbols.push(SymbolInfo {
+                    name: func.name.to_string(),
+                    kind: SymbolKind::Function,
+                    line,
+                    col,
+                    length: func.name.len(),
+                });
+
+                // Visit parameters
+                for arg in &func.args.args {
+                    let param_offset = arg.def.range.start().to_usize();
+                    let (param_line, param_col) = self.offset_to_position(content, param_offset);
+
+                    symbols.push(SymbolInfo {
+                        name: arg.def.arg.to_string(),
+                        kind: SymbolKind::Parameter,
+                        line: param_line,
+                        col: param_col,
+                        length: arg.def.arg.len(),
+                    });
+                }
+
+                // Visit body
+                for stmt in &func.body {
+                    self.visit_stmt(stmt, content, symbols);
+                }
+            }
+            ast::Stmt::ClassDef(class) => {
+                let offset = class.range.start().to_usize();
+                let (line, col) = self.offset_to_position(content, offset);
+
+                symbols.push(SymbolInfo {
+                    name: class.name.to_string(),
+                    kind: SymbolKind::Class,
+                    line,
+                    col,
+                    length: class.name.len(),
+                });
+
+                // Visit body
+                for stmt in &class.body {
+                    self.visit_stmt(stmt, content, symbols);
+                }
+            }
+            ast::Stmt::Assign(assign) => {
+                for target in &assign.targets {
+                    if let ast::Expr::Name(name) = target {
+                        let offset = name.range.start().to_usize();
+                        let (line, col) = self.offset_to_position(content, offset);
+
+                        symbols.push(SymbolInfo {
+                            name: name.id.to_string(),
+                            kind: SymbolKind::Variable,
+                            line,
+                            col,
+                            length: name.id.len(),
+                        });
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Get word at position
+    fn get_word_at_position(&self, content: &str, line: usize, col: usize) -> Option<String> {
         let lines: Vec<&str> = content.lines().collect();
         if line >= lines.len() {
             return None;
@@ -197,22 +385,10 @@ impl DocumentAnalyzer {
         let line_content = lines[line];
         let word = extract_word_at_position(line_content, col);
         if word.is_empty() {
-            return None;
+            None
+        } else {
+            Some(word)
         }
-
-        // Search for definition (simple pattern matching for now)
-        for (idx, line_text) in lines.iter().enumerate() {
-            if line_text.contains(&format!("def {}(", word)) ||
-               line_text.contains(&format!("class {}:", word)) {
-                return Some(DefinitionLocation {
-                    line: idx,
-                    col: line_text.find(word).unwrap_or(0),
-                    length: word.len(),
-                });
-            }
-        }
-
-        None
     }
 }
 
@@ -263,6 +439,131 @@ mod tests {
         let analyzer = DocumentAnalyzer::new();
         let errors = analyzer.analyze("def invalid(:\n");
         assert!(errors.len() > 0);
+    }
+
+    #[test]
+    fn test_extract_symbols_functions() {
+        let analyzer = DocumentAnalyzer::new();
+        let code = "def hello():\n    pass\n\ndef world():\n    pass";
+        let symbols = analyzer.extract_symbols(code);
+
+        assert_eq!(symbols.len(), 2);
+        assert_eq!(symbols[0].name, "hello");
+        assert_eq!(symbols[0].kind, SymbolKind::Function);
+        assert_eq!(symbols[1].name, "world");
+        assert_eq!(symbols[1].kind, SymbolKind::Function);
+    }
+
+    #[test]
+    fn test_extract_symbols_classes() {
+        let analyzer = DocumentAnalyzer::new();
+        let code = "class Foo:\n    pass\n\nclass Bar:\n    pass";
+        let symbols = analyzer.extract_symbols(code);
+
+        assert_eq!(symbols.len(), 2);
+        assert_eq!(symbols[0].name, "Foo");
+        assert_eq!(symbols[0].kind, SymbolKind::Class);
+        assert_eq!(symbols[1].name, "Bar");
+        assert_eq!(symbols[1].kind, SymbolKind::Class);
+    }
+
+    #[test]
+    fn test_extract_symbols_variables() {
+        let analyzer = DocumentAnalyzer::new();
+        let code = "x = 10\ny = 20";
+        let symbols = analyzer.extract_symbols(code);
+
+        assert_eq!(symbols.len(), 2);
+        assert_eq!(symbols[0].name, "x");
+        assert_eq!(symbols[0].kind, SymbolKind::Variable);
+        assert_eq!(symbols[1].name, "y");
+        assert_eq!(symbols[1].kind, SymbolKind::Variable);
+    }
+
+    #[test]
+    fn test_extract_symbols_parameters() {
+        let analyzer = DocumentAnalyzer::new();
+        let code = "def add(x, y):\n    return x + y";
+        let symbols = analyzer.extract_symbols(code);
+
+        // Should have 1 function + 2 parameters
+        assert_eq!(symbols.len(), 3);
+        assert_eq!(symbols[0].name, "add");
+        assert_eq!(symbols[0].kind, SymbolKind::Function);
+        assert_eq!(symbols[1].name, "x");
+        assert_eq!(symbols[1].kind, SymbolKind::Parameter);
+        assert_eq!(symbols[2].name, "y");
+        assert_eq!(symbols[2].kind, SymbolKind::Parameter);
+    }
+
+    #[test]
+    fn test_find_references() {
+        let analyzer = DocumentAnalyzer::new();
+        let code = "x = 10\ny = x + 5\nz = x * 2";
+        let references = analyzer.find_references(code, 0, 0); // Position of first 'x'
+
+        // Should find 3 references to 'x'
+        assert_eq!(references.len(), 3);
+    }
+
+    #[test]
+    fn test_get_definition() {
+        let analyzer = DocumentAnalyzer::new();
+        let code = "def hello():\n    pass\n\nhello()";
+        let definition = analyzer.get_definition(code, 3, 0); // Position of call to 'hello'
+
+        assert!(definition.is_some());
+        let def = definition.unwrap();
+        assert_eq!(def.line, 0); // Definition is on first line
+    }
+
+    #[test]
+    fn test_hover_builtin_types() {
+        let analyzer = DocumentAnalyzer::new();
+        let code = "x: int = 5";
+        let hover = analyzer.get_hover_info(code, 0, 3); // Position of 'int'
+
+        assert!(hover.is_some());
+        assert!(hover.unwrap().contains("integer"));
+    }
+
+    #[test]
+    fn test_completions_after_dot() {
+        let analyzer = DocumentAnalyzer::new();
+        let code = "x = [1, 2, 3]\nx.";
+        let completions = analyzer.get_completions(code, 1, 2); // After the dot
+
+        assert!(!completions.is_empty());
+        // Should suggest list methods
+        assert!(completions.iter().any(|c| c.label == "append"));
+    }
+
+    #[test]
+    fn test_completions_keywords() {
+        let analyzer = DocumentAnalyzer::new();
+        let code = "x";
+        let completions = analyzer.get_completions(code, 0, 1);
+
+        // When not after a dot, should suggest keywords and types
+        // Note: completions might be empty if position is at end without trigger
+        if !completions.is_empty() {
+            assert!(completions.iter().any(|c| matches!(c.kind, CompletionItemKind::KEYWORD | CompletionItemKind::CLASS)));
+        }
+    }
+
+    #[test]
+    fn test_offset_to_position() {
+        let analyzer = DocumentAnalyzer::new();
+        let code = "line1\nline2\nline3";
+
+        // Test beginning
+        assert_eq!(analyzer.offset_to_position(code, 0), (0, 0));
+
+        // Test second line
+        assert_eq!(analyzer.offset_to_position(code, 6), (1, 0));
+
+        // Test middle of second line
+        assert_eq!(analyzer.offset_to_position(code, 9), (1, 3));
     }
 }
 

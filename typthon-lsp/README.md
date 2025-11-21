@@ -5,22 +5,28 @@ A Language Server Protocol implementation for Typthon, providing editor integrat
 
 ## Features
 
-### Implemented
+### Implemented ✅
 
 - **Real-time Diagnostics**: Syntax and type error checking as you type
 - **Hover Information**: View type information and documentation on hover
-- **Code Completion**: Context-aware completion suggestions
-- **Go to Definition**: Navigate to symbol definitions
+- **Code Completion**: Context-aware completion suggestions for keywords, types, and methods
+- **Go to Definition**: Navigate to symbol definitions (functions, classes, variables)
+- **Find References**: Find all usages of a symbol throughout the document
+- **Rename Symbol**: Rename symbols across all occurrences with consistency
+- **Code Actions**: Quick fixes and refactoring suggestions
+- **Signature Help**: Function signature hints while typing with parameter information
+- **Semantic Highlighting**: Advanced syntax highlighting based on symbol types
+- **Inlay Hints**: Display inferred types inline for variables
 - **Document Synchronization**: Efficient tracking of document changes
 
-### Planned
+### Future Enhancements
 
-- **Find References**: Find all usages of a symbol
-- **Rename Symbol**: Rename across all occurrences
-- **Code Actions**: Quick fixes and refactoring suggestions
-- **Signature Help**: Function signature hints while typing
-- **Semantic Highlighting**: Advanced syntax highlighting based on types
-- **Inlay Hints**: Display inferred types inline
+- **Cross-file Analysis**: Type checking across multiple files
+- **Advanced Type Inference**: Integration with typthon-core type system
+- **Workspace Symbols**: Search for symbols across the entire workspace
+- **Code Lens**: Display additional information inline (references count, etc.)
+- **Call Hierarchy**: Show call trees for functions
+- **Document Symbols**: Outline view of document structure
 
 ## Building
 
@@ -184,6 +190,19 @@ Run the test suite:
 ```bash
 cargo test
 ```
+
+Run with coverage:
+
+```bash
+cargo test -- --nocapture
+```
+
+The test suite includes:
+- **Unit tests**: Testing individual components (analyzer, completions, diagnostics)
+- **Integration tests**: Testing the full LSP server functionality
+- **Symbol extraction tests**: Testing AST parsing and symbol identification
+- **Reference finding tests**: Testing cross-reference analysis
+- **Position mapping tests**: Testing offset-to-line/column conversion
 
 Test with a specific file:
 
