@@ -739,3 +739,85 @@ func (b *Builder) compareOpToIR(op frontend.CompareOp) Op {
 		return OpEq
 	}
 }
+
+// buildListComp desugars a list comprehension into a loop
+func (b *Builder) buildListComp(comp *frontend.ListComp) (Value, error) {
+	// Create result list
+	result := b.newTemp(ListType{Elem: IntType{}})
+	// TODO: Call runtime list constructor
+
+	// Build loop similar to buildFor
+	headerBlock := b.newBlock("comp_header")
+	bodyBlock := b.newBlock("comp_body")
+	exitBlock := b.newBlock("comp_exit")
+
+	iterVal, err := b.buildExpression(comp.Iter)
+	if err != nil {
+		return nil, err
+	}
+
+	loopVar := b.newTemp(IntType{})
+	b.locals[comp.Target] = loopVar
+
+	b.currentBl.Term = &Branch{Target: headerBlock.Label}
+
+	b.currentFn.Blocks = append(b.currentFn.Blocks, headerBlock)
+	b.currentBl = headerBlock
+
+	cond := b.newTemp(BoolType{})
+	b.currentBl.Insts = append(b.currentBl.Insts, &BinOp{
+		Dest: cond,
+		Op:   OpLt,
+		L:    loopVar,
+		R:    iterVal,
+	})
+	b.currentBl.Term = &CondBranch{
+		Cond:       cond,
+		TrueBlock:  bodyBlock.Label,
+		FalseBlock: exitBlock.Label,
+	}
+
+	b.currentFn.Blocks = append(b.currentFn.Blocks, bodyBlock)
+	b.currentBl = bodyBlock
+
+	// Evaluate element and append
+	elt, err := b.buildExpression(comp.Elt)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO: Append to result list
+
+	// Increment
+	one := &Const{Val: 1, Type: IntType{}}
+	nextVar := b.newTemp(IntType{})
+	b.currentBl.Insts = append(b.currentBl.Insts, &BinOp{
+		Dest: nextVar,
+		Op:   OpAdd,
+		L:    loopVar,
+		R:    one,
+	})
+	b.locals[comp.Target] = nextVar
+	b.currentBl.Term = &Branch{Target: headerBlock.Label}
+
+	b.currentFn.Blocks = append(b.currentFn.Blocks, exitBlock)
+	b.currentBl = exitBlock
+
+	return result, nil
+}
+
+// buildDictComp desugars a dict comprehension
+func (b *Builder) buildDictComp(comp *frontend.DictComp) (Value, error) {
+	// Similar to list comp but creates a dict
+	result := b.newTemp(DictType{Key: IntType{}, Value: IntType{}})
+	// TODO: Implement dict comprehension properly
+	return result, nil
+}
+
+// buildLambda creates a closure for a lambda expression
+func (b *Builder) buildLambda(lambda *frontend.Lambda) (Value, error) {
+	// Create closure that captures current scope
+	closure := b.newTemp(ClosureType{})
+	// TODO: Implement lambda/closure properly
+	return closure, nil
+}

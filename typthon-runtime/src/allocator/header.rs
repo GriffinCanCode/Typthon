@@ -36,6 +36,12 @@ impl ObjectHeader {
     pub unsafe fn from_object(obj: *mut u8) -> *mut Self {
         obj.sub(16) as *mut Self
     }
+
+    /// Get type info for this object
+    #[inline]
+    pub fn type_info(&self) -> NonNull<TypeInfo> {
+        self.type_info
+    }
 }
 
 /// Type metadata - immutable per-type information
@@ -45,20 +51,41 @@ impl ObjectHeader {
 pub struct TypeInfo {
     pub size: usize,
     pub align: usize,
+    pub type_id: u8,
     pub drop: Option<unsafe fn(*mut u8)>,
 }
 
 impl TypeInfo {
     /// Create type info for simple types (no drop)
     #[inline]
-    pub const fn simple(size: usize, align: usize) -> Self {
-        Self { size, align, drop: None }
+    pub const fn simple(size: usize, align: usize, type_id: u8) -> Self {
+        Self { size, align, type_id, drop: None }
     }
 
     /// Create type info with custom destructor
     #[inline]
-    pub const fn with_drop(size: usize, align: usize, drop: unsafe fn(*mut u8)) -> Self {
-        Self { size, align, drop: Some(drop) }
+    pub const fn with_drop(size: usize, align: usize, type_id: u8, drop: unsafe fn(*mut u8)) -> Self {
+        Self { size, align, type_id, drop: Some(drop) }
+    }
+
+    /// Get object type from type info
+    #[inline]
+    pub fn object_type(&self) -> crate::objects::ObjectType {
+        use crate::objects::ObjectType;
+        match self.type_id {
+            0 => ObjectType::None,
+            1 => ObjectType::Bool,
+            2 => ObjectType::Int,
+            3 => ObjectType::Float,
+            4 => ObjectType::String,
+            5 => ObjectType::List,
+            6 => ObjectType::Dict,
+            7 => ObjectType::Tuple,
+            8 => ObjectType::Function,
+            9 => ObjectType::Class,
+            10 => ObjectType::Instance,
+            _ => ObjectType::Unknown,
+        }
     }
 }
 

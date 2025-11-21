@@ -8,6 +8,7 @@
 pub mod logging;
 pub mod allocator;
 pub mod gc;
+pub mod objects;
 pub mod builtins;
 pub mod interop;
 pub mod ffi;
@@ -15,6 +16,7 @@ pub mod ffi;
 // Re-export core types
 pub use allocator::Allocator;
 pub use gc::RefCount;
+pub use objects::{PyObject, ObjectType};
 pub use builtins::*;
 
 // Re-export logging for convenience
