@@ -305,3 +305,176 @@ _test:
 		_ = QuickValidate(asm)
 	}
 }
+
+func TestValidatorCallerSavedPreservation(t *testing.T) {
+	// Test: caller-saved register used before call but not preserved
+	asmWithIssue := `
+	.text
+	.globl main
+main:
+	pushq %rbp
+	movq %rsp, %rbp
+	movq $42, %r10        # r10 is caller-saved, gets a value
+	call some_function     # call without saving r10
+	addq %r10, %rax       # using r10 after call (may be clobbered)
+	popq %rbp
+	retq
+`
+
+	validator := NewValidator()
+	err := validator.Validate(asmWithIssue)
+
+	// Debug output
+	t.Logf("Errors: %d, Warnings: %d", len(validator.errors), len(validator.warns))
+	for _, w := range validator.warns {
+		t.Logf("Warning: %s", w.Message)
+	}
+
+	// Should have a warning about caller-saved preservation
+	if len(validator.warns) == 0 {
+		t.Error("expected warning about caller-saved register preservation")
+	}
+
+	// Test: properly preserved caller-saved register
+	asmValid := `
+	.text
+	.globl main
+main:
+	pushq %rbp
+	movq %rsp, %rbp
+	movq $42, %rcx
+	pushq %rcx             # save before call
+	call some_function
+	popq %rcx              # restore after call
+	addq %rcx, %rax
+	popq %rbp
+	retq
+`
+
+	validator2 := NewValidator()
+	err = validator2.Validate(asmValid)
+	if err != nil {
+		t.Errorf("valid code should not produce errors: %v", err)
+	}
+}
+
+func TestValidatorRedundantMoves(t *testing.T) {
+	// Test: same register move
+	asmSameReg := `
+	.text
+	.globl test
+test:
+	movq %rax, %rax       # redundant: same source and dest
+	retq
+`
+
+	validator := NewValidator()
+	_ = validator.Validate(asmSameReg)
+
+	t.Logf("Same reg test - Warnings: %d", len(validator.warns))
+	for _, w := range validator.warns {
+		t.Logf("  Warning: %s", w.Message)
+	}
+
+	if len(validator.warns) == 0 {
+		t.Error("expected warning about redundant move (same register)")
+	}
+
+	found := false
+	for _, warn := range validator.warns {
+		if strings.Contains(warn.Message, "redundant move") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected redundant move warning")
+	}
+
+	// Test: swap pattern
+	asmSwap := `
+	.text
+	.globl test
+test:
+	movq %rax, %rbx
+	movq %rbx, %rax       # swap pattern
+	retq
+`
+
+	validator2 := NewValidator()
+	_ = validator2.Validate(asmSwap)
+
+	foundSwap := false
+	for _, warn := range validator2.warns {
+		if strings.Contains(warn.Message, "swap pattern") {
+			foundSwap = true
+			break
+		}
+	}
+	if !foundSwap {
+		t.Error("expected swap pattern warning")
+	}
+
+	// Test: duplicate move
+	asmDuplicate := `
+	.text
+	.globl test
+test:
+	movq %rax, %rbx
+	movq %rax, %rbx       # exact duplicate
+	retq
+`
+
+	validator3 := NewValidator()
+	_ = validator3.Validate(asmDuplicate)
+
+	foundDup := false
+	for _, warn := range validator3.warns {
+		if strings.Contains(warn.Message, "duplicate move") {
+			foundDup = true
+			break
+		}
+	}
+	if !foundDup {
+		t.Error("expected duplicate move warning")
+	}
+}
+
+func TestValidatorOptimizedCode(t *testing.T) {
+	// Test that clean, optimized code passes without warnings
+	asmClean := `
+	.text
+	.globl factorial
+factorial:
+	pushq %rbp
+	movq %rsp, %rbp
+	cmpq $1, %rdi
+	jle .L_base
+	pushq %rdi            # save before recursion
+	subq $1, %rdi
+	call factorial
+	popq %rdi
+	imulq %rdi, %rax
+	popq %rbp
+	retq
+.L_base:
+	movq $1, %rax
+	popq %rbp
+	retq
+`
+
+	validator := NewValidator()
+	err := validator.Validate(asmClean)
+
+	if err != nil {
+		t.Errorf("clean optimized code should not have errors: %v", err)
+	}
+
+	// This clean code should have minimal warnings
+	if len(validator.warns) > 1 {
+		t.Errorf("clean code should have few warnings, got %d", len(validator.warns))
+		for _, w := range validator.warns {
+			t.Logf("  Warning: %s", w.Message)
+		}
+	}
+}

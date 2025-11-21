@@ -59,10 +59,12 @@ The code generator includes a comprehensive assembly validator that checks:
 
 1. **Syntax correctness** - Valid instruction formats and operands
 2. **Register usage** - Only valid x86-64 registers used
-3. **Calling convention** - System V ABI compliance
-4. **Stack balance** - Push/pop matching, frame setup/teardown
-5. **Memory addressing** - Valid addressing modes and scale factors
-6. **Instruction validity** - No invalid operand combinations
+3. **Calling convention** - System V ABI compliance (callee-saved registers)
+4. **Caller-saved preservation** - Live caller-saved registers preserved across calls
+5. **Stack balance** - Push/pop matching, frame setup/teardown
+6. **Memory addressing** - Valid addressing modes and scale factors
+7. **Instruction validity** - No invalid operand combinations
+8. **Redundant move elimination** - Detects and warns about redundant move instructions
 
 ### Using the Validator
 

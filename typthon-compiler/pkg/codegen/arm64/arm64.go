@@ -7,6 +7,7 @@ package arm64
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/GriffinCanCode/typthon-compiler/pkg/codegen/regalloc"
 	"github.com/GriffinCanCode/typthon-compiler/pkg/ir"
@@ -38,17 +39,44 @@ func NewGenerator(w io.Writer) *Generator {
 
 // Generate emits assembly for an SSA program
 func (g *Generator) Generate(prog *ssa.Program) error {
+	logger.Debug("Generating arm64 assembly", "functions", len(prog.Functions))
+
 	// Emit assembly header
 	fmt.Fprintf(g.w, "\t.text\n")
 	fmt.Fprintf(g.w, "\t.align 2\n")
 
 	for _, fn := range prog.Functions {
+		logger.Debug("Generating function assembly", "arch", "arm64", "name", fn.Name)
 		if err := g.generateFunction(fn); err != nil {
+			logger.Error("Failed to generate function", "arch", "arm64", "name", fn.Name, "error", err)
 			return err
 		}
 	}
 
+	logger.Info("arm64 code generation complete", "functions", len(prog.Functions))
 	return nil
+}
+
+// GenerateWithValidation generates and validates assembly
+func (g *Generator) GenerateWithValidation(prog *ssa.Program) (string, error) {
+	// Generate to a buffer first
+	var buf strings.Builder
+	g.w = &buf
+
+	if err := g.Generate(prog); err != nil {
+		return "", fmt.Errorf("generation failed: %w", err)
+	}
+
+	assembly := buf.String()
+
+	// Validate the generated assembly
+	if err := ValidateProgram(assembly); err != nil {
+		logger.Error("Assembly validation failed", "error", err)
+		return assembly, fmt.Errorf("validation failed: %w", err)
+	}
+
+	logger.Info("Assembly generated and validated successfully")
+	return assembly, nil
 }
 
 // generateFunction emits assembly for a single function
