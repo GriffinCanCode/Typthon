@@ -42,9 +42,11 @@ func (v *Validator) Validate(assembly string) error {
 	v.validateSyntax(lines)
 	v.validateRegisters(lines)
 	v.validateCallingConvention(lines)
+	v.validateCallerSavedPreservation(lines)
 	v.validateStackBalance(lines)
 	v.validateInstructionValidity(lines)
 	v.validateMemoryAddressing(lines)
+	v.detectRedundantMoves(lines)
 
 	if len(v.errors) > 0 {
 		return v.formatErrors()
@@ -158,6 +160,166 @@ func (v *Validator) validateCallingConvention(lines []string) {
 				v.addError(i+1, fmt.Sprintf("callee-saved registers not restored in %s: %v", functionName, savedRegs), line)
 			}
 			inFunction = false
+		}
+	}
+}
+
+// validateCallerSavedPreservation checks that caller-saved registers are preserved across calls
+func (v *Validator) validateCallerSavedPreservation(lines []string) {
+	callerSavedRegs := map[string]bool{
+		"%rax": true, "%rcx": true, "%rdx": true, "%rsi": true,
+		"%rdi": true, "%r8": true, "%r9": true, "%r10": true, "%r11": true,
+	}
+
+	inFunction := false
+	liveRegs := make(map[string]bool)
+	regPattern := regexp.MustCompile(`%[a-z0-9]+`)
+
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		// Strip inline comments (everything after #)
+		if idx := strings.Index(trimmed, "#"); idx != -1 {
+			trimmed = strings.TrimSpace(trimmed[:idx])
+		}
+
+		// Track function boundaries
+		if strings.HasSuffix(trimmed, ":") && !strings.HasPrefix(trimmed, ".L") {
+			inFunction = true
+			liveRegs = make(map[string]bool)
+			continue
+		}
+
+		if !inFunction || trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		// Track register definitions (writes to caller-saved registers)
+		if strings.Contains(trimmed, "movq") || strings.Contains(trimmed, "mov") ||
+			strings.Contains(trimmed, "addq") || strings.Contains(trimmed, "subq") ||
+			strings.Contains(trimmed, "imulq") || strings.Contains(trimmed, "leaq") ||
+			strings.Contains(trimmed, "xorq") || strings.Contains(trimmed, "orq") {
+			parts := strings.Split(trimmed, ",")
+			if len(parts) >= 2 {
+				dest := strings.TrimSpace(parts[len(parts)-1])
+				// Check if destination is a caller-saved register
+				regs := regPattern.FindAllString(dest, -1)
+				for _, reg := range regs {
+					if callerSavedRegs[reg] {
+						liveRegs[reg] = true
+					}
+				}
+			}
+		}
+
+		// Check for calls
+		if strings.Contains(trimmed, "call") && !strings.HasPrefix(trimmed, "#") {
+			// Find live caller-saved registers not preserved before the call
+			unsaved := make([]string, 0)
+			for reg := range liveRegs {
+				// Check if there's a push before the call (within last 5 instructions)
+				preserved := false
+				for j := i - 1; j >= 0 && j >= i-5; j-- {
+					prevLine := strings.TrimSpace(lines[j])
+					if strings.Contains(prevLine, "pushq") && strings.Contains(prevLine, reg) {
+						preserved = true
+						break
+					}
+					// Stop at function boundary or label
+					if strings.HasSuffix(prevLine, ":") {
+						break
+					}
+				}
+
+				if !preserved {
+					unsaved = append(unsaved, reg)
+				}
+			}
+
+			if len(unsaved) > 0 {
+				v.addWarn(i+1, fmt.Sprintf("caller-saved registers may need preservation: %v", unsaved), trimmed)
+			}
+
+			// After call, all caller-saved regs are clobbered
+			liveRegs = make(map[string]bool)
+		}
+
+		if strings.Contains(trimmed, "retq") || strings.Contains(trimmed, "ret") {
+			inFunction = false
+			liveRegs = make(map[string]bool)
+		}
+	}
+}
+
+// detectRedundantMoves identifies and warns about redundant move instructions
+func (v *Validator) detectRedundantMoves(lines []string) {
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		// Strip comments
+		if idx := strings.Index(trimmed, "#"); idx != -1 {
+			trimmed = strings.TrimSpace(trimmed[:idx])
+		}
+
+		// Skip non-move instructions or empty lines
+		if trimmed == "" || (!strings.HasPrefix(trimmed, "movq") && !strings.HasPrefix(trimmed, "mov ")) {
+			continue
+		}
+
+		// Parse the move instruction
+		parts := strings.Split(trimmed, ",")
+		if len(parts) != 2 {
+			continue
+		}
+
+		// Extract source and destination
+		instrParts := strings.Fields(parts[0])
+		if len(instrParts) < 2 {
+			continue
+		}
+
+		src := strings.TrimSpace(instrParts[1])
+		dest := strings.TrimSpace(parts[1])
+
+		// Check for mov %reg, %reg (same register)
+		if src == dest {
+			v.addWarn(i+1, fmt.Sprintf("redundant move: source and destination are identical (%s)", src), line)
+			continue
+		}
+
+		// Check for mov A, B followed by mov B, A (swap pattern)
+		if i+1 < len(lines) {
+			nextTrimmed := strings.TrimSpace(lines[i+1])
+			// Strip comments from next line
+			if idx := strings.Index(nextTrimmed, "#"); idx != -1 {
+				nextTrimmed = strings.TrimSpace(nextTrimmed[:idx])
+			}
+
+			if strings.HasPrefix(nextTrimmed, "movq") || strings.HasPrefix(nextTrimmed, "mov ") {
+				nextParts := strings.Split(nextTrimmed, ",")
+				if len(nextParts) == 2 {
+					nextInstrParts := strings.Fields(nextParts[0])
+					if len(nextInstrParts) >= 2 {
+						nextSrc := strings.TrimSpace(nextInstrParts[1])
+						nextDest := strings.TrimSpace(nextParts[1])
+
+						if src == nextDest && dest == nextSrc {
+							v.addWarn(i+1, "redundant move sequence: swap pattern detected, consider xor-based swap", line)
+						}
+					}
+				}
+			}
+		}
+
+		// Check for repeated identical moves (comparing without comments)
+		if i+1 < len(lines) {
+			nextTrimmed := strings.TrimSpace(lines[i+1])
+			if idx := strings.Index(nextTrimmed, "#"); idx != -1 {
+				nextTrimmed = strings.TrimSpace(nextTrimmed[:idx])
+			}
+			if nextTrimmed == trimmed {
+				v.addWarn(i+2, "duplicate move instruction", lines[i+1])
+			}
 		}
 	}
 }

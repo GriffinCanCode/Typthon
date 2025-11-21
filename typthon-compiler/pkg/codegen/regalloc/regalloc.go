@@ -33,6 +33,8 @@ type Allocator struct {
 	nextSpillSlot  int
 	instPositions  map[ir.Inst]int
 	valuePositions map[ir.Value]int
+	cfg            *Config
+	callSites      []int // Positions of call instructions
 }
 
 // Config holds register allocation configuration for an architecture
@@ -41,6 +43,26 @@ type Config struct {
 	Reserved    []string // Reserved registers (args, return, etc.)
 	CalleeSaved []string // Callee-saved registers
 	CallerSaved []string // Caller-saved registers
+}
+
+// isCallerSaved checks if a register is caller-saved
+func (c *Config) isCallerSaved(reg string) bool {
+	for _, r := range c.CallerSaved {
+		if r == reg {
+			return true
+		}
+	}
+	return false
+}
+
+// isCalleeSaved checks if a register is callee-saved
+func (c *Config) isCalleeSaved(reg string) bool {
+	for _, r := range c.CalleeSaved {
+		if r == reg {
+			return true
+		}
+	}
+	return false
 }
 
 // NewAllocator creates a new register allocator
@@ -55,6 +77,8 @@ func NewAllocator(fn *ssa.Function, cfg *Config) *Allocator {
 		nextSpillSlot:  0,
 		instPositions:  make(map[ir.Inst]int),
 		valuePositions: make(map[ir.Value]int),
+		cfg:            cfg,
+		callSites:      make([]int, 0),
 	}
 }
 
@@ -101,6 +125,10 @@ func (a *Allocator) numberInstructions() {
 		}
 		for _, inst := range block.Insts {
 			a.instPositions[inst] = pos
+			// Track call sites
+			if _, isCall := inst.(*ir.Call); isCall {
+				a.callSites = append(a.callSites, pos)
+			}
 			pos += 2
 		}
 		// Terminator gets a position too
@@ -171,16 +199,61 @@ func (a *Allocator) computeLiveness() error {
 			}
 		}
 
+		// Split intervals at call sites if value spans a call
+		a.splitAtCalls(val, defPos, endPos, defs, uses)
+	}
+
+	return nil
+}
+
+// splitAtCalls splits intervals at call sites for values in caller-saved registers
+func (a *Allocator) splitAtCalls(val ir.Value, start, end int, defs map[ir.Value]int, uses map[ir.Value][]int) {
+	// Find all call sites this interval spans
+	callsInRange := make([]int, 0)
+	for _, callPos := range a.callSites {
+		if callPos > start && callPos < end {
+			callsInRange = append(callsInRange, callPos)
+		}
+	}
+
+	// If no calls in range, create single interval
+	if len(callsInRange) == 0 {
 		interval := &Interval{
 			Value: val,
-			Start: defPos,
-			End:   endPos,
+			Start: start,
+			End:   end,
+			Spill: -1,
+		}
+		a.intervals = append(a.intervals, interval)
+		return
+	}
+
+	// Split the interval at each call site
+	currentStart := start
+	for _, callPos := range callsInRange {
+		// Create interval up to call
+		interval := &Interval{
+			Value: val,
+			Start: currentStart,
+			End:   callPos - 1,
+			Spill: -1,
+		}
+		a.intervals = append(a.intervals, interval)
+
+		// Start new interval after call
+		currentStart = callPos + 1
+	}
+
+	// Create final interval after last call
+	if currentStart <= end {
+		interval := &Interval{
+			Value: val,
+			Start: currentStart,
+			End:   end,
 			Spill: -1,
 		}
 		a.intervals = append(a.intervals, interval)
 	}
-
-	return nil
 }
 
 // allocateInterval allocates a register or spills an interval
@@ -188,20 +261,54 @@ func (a *Allocator) allocateInterval(interval *Interval) error {
 	// Expire old intervals
 	a.expireOldIntervals(interval)
 
+	// Check if interval spans a call site
+	spansCall := false
+	for _, callPos := range a.callSites {
+		if interval.Start < callPos && interval.End > callPos {
+			spansCall = true
+			break
+		}
+	}
+
 	// Try to allocate a free register
 	if len(a.free) > 0 {
-		reg := a.free[len(a.free)-1]
-		a.free = a.free[:len(a.free)-1]
-		interval.Reg = reg
-		a.regMap[interval.Value] = reg
-		a.active = append(a.active, interval)
-		a.sortActiveByEnd()
-		logger.Debug("Allocated register", "value", valStr(interval.Value), "reg", reg)
-		return nil
+		// Prefer callee-saved registers for intervals spanning calls
+		reg := a.selectRegister(spansCall)
+		if reg != "" {
+			interval.Reg = reg
+			a.regMap[interval.Value] = reg
+			a.active = append(a.active, interval)
+			a.sortActiveByEnd()
+			logger.Debug("Allocated register", "value", valStr(interval.Value), "reg", reg, "spansCall", spansCall)
+			return nil
+		}
 	}
 
 	// No free registers - need to spill
 	return a.spillAtInterval(interval)
+}
+
+// selectRegister chooses the best available register
+func (a *Allocator) selectRegister(preferCalleeSaved bool) string {
+	if len(a.free) == 0 {
+		return ""
+	}
+
+	// If we prefer callee-saved and have one available, use it
+	if preferCalleeSaved {
+		for i, reg := range a.free {
+			if a.cfg.isCalleeSaved(reg) {
+				// Remove from free list
+				a.free = append(a.free[:i], a.free[i+1:]...)
+				return reg
+			}
+		}
+	}
+
+	// Otherwise, just take the last one
+	reg := a.free[len(a.free)-1]
+	a.free = a.free[:len(a.free)-1]
+	return reg
 }
 
 // expireOldIntervals removes intervals that are no longer active
