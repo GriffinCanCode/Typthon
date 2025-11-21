@@ -19,7 +19,8 @@ func Convert(prog *ir.Program) *Program {
 	for _, irFn := range prog.Functions {
 		logger.Debug("Converting function to SSA", "name", irFn.Name, "blocks", len(irFn.Blocks))
 		ssaFn := &Function{
-			Name: irFn.Name,
+			Name:   irFn.Name,
+			Params: irFn.Params,
 		}
 
 		// Convert each block
@@ -78,6 +79,7 @@ type Program struct {
 
 type Function struct {
 	Name   string
+	Params []*ir.Param
 	Blocks []*Block
 }
 

@@ -44,23 +44,10 @@ int64_t len(void* obj) {
         typthon_panic("len() called on NULL object");
     }
 
-    // For now, use FFI calls to Rust runtime for proper dispatch
-    // This will be improved when we have full object system
-    extern int64_t typthon_list_len(void* obj);
-    extern int64_t typthon_dict_len(void* obj);
-
-    // Simple type tag check - first byte of object header
-    uint8_t type_tag = *(uint8_t*)((uintptr_t)obj - 16);
-
-    switch(type_tag) {
-        case 5: // List
-            return (int64_t)typthon_list_len(obj);
-        case 6: // Dict
-            return (int64_t)typthon_dict_len(obj);
-        default:
-            typthon_panic("len() not supported for this type");
-            return 0;
-    }
+    // TODO: Implement proper type dispatch
+    // For Phase 1, we don't support collections yet
+    typthon_panic("len() not yet implemented");
+    return 0;
 }
 
 // Built-in: range (returns iterator end value for simple loops)
@@ -101,14 +88,9 @@ int64_t isinstance(void* obj, int64_t type_id) {
     return obj_type == (uint8_t)type_id;
 }
 
-// Entry point wrapper - ensures init/cleanup
-// User-defined main() will be called by this
-extern int64_t main(void);
-
-int _start(void) {
-    typthon_init();
-    int64_t result = main();
-    typthon_cleanup();
-    exit((int)result);
+// Main entry point - can be overridden by test wrappers
+// If no main is provided, we just initialize and cleanup
+__attribute__((weak)) int64_t main(void) {
+    return 0;
 }
 

@@ -18,14 +18,16 @@ type Generator struct {
 	w        io.Writer
 	regs     *RegAlloc
 	valRegs  map[ir.Value]string
+	paramMap map[*ir.Param]int // Maps params to their index
 	stackOff int
 }
 
 func NewGenerator(w io.Writer) *Generator {
 	return &Generator{
-		w:       w,
-		regs:    NewRegAlloc(),
-		valRegs: make(map[ir.Value]string),
+		w:        w,
+		regs:     NewRegAlloc(),
+		valRegs:  make(map[ir.Value]string),
+		paramMap: make(map[*ir.Param]int),
 	}
 }
 
@@ -48,6 +50,7 @@ func (g *Generator) Generate(prog *ssa.Program) error {
 func (g *Generator) generateFunction(fn *ssa.Function) error {
 	g.regs.Reset()
 	g.valRegs = make(map[ir.Value]string)
+	g.paramMap = make(map[*ir.Param]int)
 	g.stackOff = 0
 
 	instCount := 0
@@ -55,6 +58,11 @@ func (g *Generator) generateFunction(fn *ssa.Function) error {
 		instCount += len(block.Insts)
 	}
 	logger.LogCodeGen("arm64", fn.Name, instCount)
+
+	// Build parameter map from IR function
+	if err := g.mapParameters(fn); err != nil {
+		return err
+	}
 
 	// Prologue
 	fmt.Fprintf(g.w, "\t.global _%s\n", fn.Name)
@@ -71,6 +79,14 @@ func (g *Generator) generateFunction(fn *ssa.Function) error {
 		}
 	}
 
+	return nil
+}
+
+// mapParameters builds the parameter index map
+func (g *Generator) mapParameters(fn *ssa.Function) error {
+	for i, param := range fn.Params {
+		g.paramMap[param] = i
+	}
 	return nil
 }
 
@@ -253,6 +269,13 @@ func (g *Generator) valueReg(val ir.Value) string {
 		if reg, ok := g.valRegs[v]; ok {
 			return reg
 		}
+		// Parameters arrive in x0-x7, need to use directly or move to callee-saved
+		if idx, ok := g.paramMap[v]; ok && idx < len(ArgRegs) {
+			// Use arg register directly for simplicity
+			g.valRegs[v] = ArgRegs[idx]
+			return ArgRegs[idx]
+		}
+		// Fallback: allocate new register (shouldn't happen for valid code)
 		return g.allocReg(v)
 	default:
 		panic(fmt.Sprintf("unsupported value type: %T", val))

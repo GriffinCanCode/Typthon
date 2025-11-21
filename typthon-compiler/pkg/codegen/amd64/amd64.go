@@ -19,14 +19,16 @@ type Generator struct {
 	w        io.Writer
 	regs     *RegAlloc
 	valRegs  map[ir.Value]string
+	paramMap map[*ir.Param]int
 	stackOff int
 }
 
 func NewGenerator(w io.Writer) *Generator {
 	return &Generator{
-		w:       w,
-		regs:    NewRegAlloc(),
-		valRegs: make(map[ir.Value]string),
+		w:        w,
+		regs:     NewRegAlloc(),
+		valRegs:  make(map[ir.Value]string),
+		paramMap: make(map[*ir.Param]int),
 	}
 }
 
@@ -53,6 +55,7 @@ func (g *Generator) Generate(prog *ssa.Program) error {
 func (g *Generator) generateFunction(fn *ssa.Function) error {
 	g.regs.Reset()
 	g.valRegs = make(map[ir.Value]string)
+	g.paramMap = make(map[*ir.Param]int)
 	g.stackOff = 0
 
 	instCount := 0
@@ -62,7 +65,9 @@ func (g *Generator) generateFunction(fn *ssa.Function) error {
 	logger.LogCodeGen("amd64", fn.Name, instCount)
 
 	// Map parameters to their argument registers
-	g.mapParameters(fn)
+	if err := g.mapParameters(fn); err != nil {
+		return err
+	}
 
 	// Prologue
 	fmt.Fprintf(g.w, "\t.globl _%s\n", fn.Name)
@@ -80,11 +85,12 @@ func (g *Generator) generateFunction(fn *ssa.Function) error {
 	return nil
 }
 
-// mapParameters assigns parameters to their calling convention registers
-func (g *Generator) mapParameters(fn *ssa.Function) {
-	// Get function parameters from first block's context
-	// In SSA, we need to get params from the IR function
-	// For now, we'll look them up dynamically in valueReg
+// mapParameters builds the parameter index map
+func (g *Generator) mapParameters(fn *ssa.Function) error {
+	for i, param := range fn.Params {
+		g.paramMap[param] = i
+	}
+	return nil
 }
 
 // generateBlock emits assembly for a basic block
@@ -299,17 +305,16 @@ func (g *Generator) valueReg(val ir.Value) string {
 		return g.allocReg(v)
 	case *ir.Param:
 		// Parameters come in via argument registers (System V ABI)
-		// We need to track which parameter this is
-		// For Phase 1 simplicity, we'll return the arg register directly
-		// This works because we're not modifying parameters
 		if reg, ok := g.valRegs[v]; ok {
 			return reg
 		}
-		// Use the parameter's position to determine register
-		// For now, allocate to a callee-saved register
-		reg := g.allocReg(v)
-		// In a real implementation, we'd move from ArgRegs[paramIndex] to reg
-		return reg
+		// Use arg register directly based on parameter index
+		if idx, ok := g.paramMap[v]; ok && idx < len(ArgRegs) {
+			g.valRegs[v] = ArgRegs[idx]
+			return ArgRegs[idx]
+		}
+		// Fallback: allocate new register (shouldn't happen for valid code)
+		return g.allocReg(v)
 	default:
 		panic(fmt.Sprintf("unsupported value type: %T", val))
 	}

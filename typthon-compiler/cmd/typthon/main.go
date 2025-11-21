@@ -184,8 +184,26 @@ func compileProgram(source string, output string) error {
 
 	// 6. Link with runtime
 	logger.LogLinkingStart(2)
-	runtimeDir := filepath.Join(filepath.Dir(os.Args[0]), "..", "runtime")
-	runtimeC := filepath.Join(runtimeDir, "runtime.c")
+
+	// Find runtime.c - check multiple locations
+	var runtimeC string
+	possiblePaths := []string{
+		filepath.Join(filepath.Dir(os.Args[0]), "..", "runtime", "runtime.c"),
+		filepath.Join(filepath.Dir(os.Args[0]), "runtime", "runtime.c"),
+		"runtime/runtime.c",
+	}
+
+	for _, path := range possiblePaths {
+		if _, err := os.Stat(path); err == nil {
+			runtimeC = path
+			break
+		}
+	}
+
+	if runtimeC == "" {
+		logger.Error("Could not find runtime.c")
+		return fmt.Errorf("could not find runtime.c in any expected location")
+	}
 
 	// Compile runtime
 	runtimeObj := output + "_runtime.o"
