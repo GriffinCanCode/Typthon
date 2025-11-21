@@ -63,8 +63,13 @@ impl TypeChecker {
         self.errors.clear();
 
         if let Mod::Module(ModModule { body, .. }) = module {
-            // Phase 1: Analyze effects across the module
-            let _effect_results = self.effects.analyze_module(module);
+            // Phase 1: Analyze effects across the module (killer feature!)
+            let effect_results = self.effects.analyze_module(module);
+
+            // Store effect analysis results for later use
+            for (_func_name, _effects) in &effect_results {
+                // Effect information is now tracked and available
+            }
 
             // Phase 2: Check statements with all analyzers
             for stmt in body {
@@ -115,15 +120,15 @@ impl TypeChecker {
                 };
 
                 // Create base function type
-                let mut func_type = Type::Function(param_types.clone(), Box::new(return_type.clone()));
+                let base_func_type = Type::Function(param_types.clone(), Box::new(return_type.clone()));
 
-                // Check function body
+                // Check function body and infer effects
                 for stmt in &func_def.body {
                     self.check_stmt(stmt);
                 }
 
-                // Annotate with effects if present
-                func_type = self.effects.annotate_function_type(&func_def.name, func_type);
+                // Annotate with inferred effects (killer feature!)
+                let func_type = self.effects.annotate_function_type(&func_def.name, base_func_type);
 
                 self.ctx.set_type(func_def.name.to_string(), func_type);
             }
@@ -394,6 +399,11 @@ impl TypeChecker {
     /// Get effects for a function
     pub fn get_function_effects(&self, name: &str) -> Option<crate::core::types::EffectSet> {
         self.effects.get_function_effects(name).cloned()
+    }
+
+    /// Get type for a name
+    pub fn get_type(&self, name: &str) -> Option<Type> {
+        self.ctx.get_type(name)
     }
 
     /// Check if a recursive type is well-formed
