@@ -1,20 +1,24 @@
 //! Advanced concurrency patterns for type checking and compilation
 //!
-//! This module provides multiple concurrency models optimized for compiler workloads:
+//! This module provides independent concurrency primitives optimized for compiler workloads.
+//! Each pattern is isolated to maintain separation of concerns:
 //!
 //! - **Actor Model** (`actor`): Message-passing concurrency with supervision
 //! - **Structured Concurrency** (`structured`): Scoped tasks with proper cancellation
 //! - **Async I/O** (`async_io`): Non-blocking file operations with caching
 //! - **Query System** (`query`): Salsa-based incremental computation
 //! - **Pipeline Parallelism** (`pipeline`): Multi-stage compilation with flow control
-//! - **Integration** (`integration`): Practical integration examples
+//!
+//! ## Integration
+//!
+//! These primitives are orchestrated at the higher level in `infrastructure::parallel`,
+//! which combines them appropriately for compiler workloads while maintaining SOC.
 
 pub mod actor;
 pub mod structured;
 pub mod async_io;
 pub mod query;
 pub mod pipeline;
-pub mod integration;
 
 // Re-export key types
 pub use actor::{
@@ -35,8 +39,3 @@ pub use pipeline::{
     Stage, Pipeline, PipelineHandle, AsyncPipeline, CompilerPipeline, CompilerStage,
     BufferedPipeline, ControlledPipeline, FlowControl,
 };
-pub use integration::{
-    TypeCheckActor, TypeCheckMessage, TypeCheckResponse,
-    SupervisedTypeChecker, StructuredProjectAnalyzer, PipelinedCompiler,
-};
-
