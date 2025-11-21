@@ -13,11 +13,11 @@ import pytest
 
 # Try to import typthon - gracefully handle if not installed
 try:
-    import typhon
+    import typthon
     TYPHON_AVAILABLE = True
 except ImportError:
     TYPHON_AVAILABLE = False
-    typhon = None
+    typthon = None
 
 
 def pytest_configure(config):
@@ -36,11 +36,11 @@ def pytest_configure(config):
 
 
 def pytest_collection_modifyitems(config, items):
-    """Automatically skip tests requiring typhon if not available."""
-    skip_typhon = pytest.mark.skip(reason="typhon not installed")
+    """Automatically skip tests requiring typthon if not available."""
+    skip_typthon = pytest.mark.skip(reason="typthon not installed")
     for item in items:
         if "requires_typhon" in item.keywords and not TYPHON_AVAILABLE:
-            item.add_marker(skip_typhon)
+            item.add_marker(skip_typthon)
 
 
 @pytest.fixture
@@ -71,8 +71,8 @@ def write_file(temp_file: Path):
 def validator():
     """Provide a TypeValidator instance."""
     if not TYPHON_AVAILABLE:
-        pytest.skip("typhon not installed")
-    return typhon.TypeValidator()
+        pytest.skip("typthon not installed")
+    return typthon.TypeValidator()
 
 
 @pytest.fixture

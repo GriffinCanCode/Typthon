@@ -1,5 +1,6 @@
-use typthon::analysis::{ConstraintSolver, Constraint, ProtocolLibrary, ProtocolChecker};
-use typthon::core::types::{Type, TypeContext};
+use typthon::compiler::analysis::{ConstraintSolver, Constraint};
+use typthon::compiler::analysis::protocols::ProtocolLibrary;
+use typthon::compiler::types::{Type, TypeContext};
 use std::sync::Arc;
 
 #[test]
@@ -112,7 +113,7 @@ fn test_callable_protocol() {
     // Verify it's a function type
     if let Type::Function(func_params, func_ret) = &callable[0].1 {
         assert_eq!(func_params.len(), 2);
-        assert_eq!(**func_ret, Type::Bool);
+        assert_eq!(func_ret.as_ref(), &Type::Bool);
     } else {
         panic!("Expected Function type");
     }
@@ -283,7 +284,7 @@ fn test_hashable_protocol() {
 
     if let Type::Function(params, ret) = &hashable[0].1 {
         assert!(params.is_empty());
-        assert_eq!(**ret, Type::Int);
+        assert_eq!(ret.as_ref(), &Type::Int);
     } else {
         panic!("Expected Function type");
     }
@@ -297,7 +298,7 @@ fn test_equality_protocol() {
 
     if let Type::Function(params, ret) = &equality[0].1 {
         assert_eq!(params.len(), 1);
-        assert_eq!(**ret, Type::Bool);
+        assert_eq!(ret.as_ref(), &Type::Bool);
     } else {
         panic!("Expected Function type");
     }

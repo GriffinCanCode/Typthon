@@ -288,6 +288,7 @@ impl EffectAnalyzer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::compiler::frontend::parse_module;
 
     #[test]
     fn test_pure_function() {
@@ -295,7 +296,7 @@ mod tests {
         let mut analyzer = EffectAnalyzer::new(ctx);
 
         let source = "def add(x, y):\n    return x + y";
-        let module = rustpython_parser::parse_program(source, "test.py").unwrap();
+        let module = parse_module(source).unwrap();
 
         analyzer.analyze_module(&module);
 
@@ -309,7 +310,7 @@ mod tests {
         let mut analyzer = EffectAnalyzer::new(ctx);
 
         let source = "def greet():\n    print('Hello')";
-        let module = rustpython_parser::parse_program(source, "test.py").unwrap();
+        let module = parse_module(source).unwrap();
 
         analyzer.analyze_module(&module);
 
@@ -323,7 +324,7 @@ mod tests {
         let mut analyzer = EffectAnalyzer::new(ctx);
 
         let source = "def modify(x):\n    x = 42\n    return x";
-        let module = rustpython_parser::parse_program(source, "test.py").unwrap();
+        let module = parse_module(source).unwrap();
 
         analyzer.analyze_module(&module);
 

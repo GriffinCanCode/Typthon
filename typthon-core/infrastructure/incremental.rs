@@ -31,6 +31,11 @@ impl ModuleId {
     pub fn as_str(&self) -> String {
         format!("{:016x}", self.0)
     }
+
+    #[cfg(test)]
+    pub fn new(id: u64) -> Self {
+        Self(id)
+    }
 }
 
 /// Content hash for change detection
@@ -49,6 +54,11 @@ impl ContentHash {
 
     pub fn as_bytes(&self) -> &[u8; 32] {
         &self.0
+    }
+
+    #[cfg(test)]
+    pub fn new(bytes: [u8; 32]) -> Self {
+        Self(bytes)
     }
 }
 

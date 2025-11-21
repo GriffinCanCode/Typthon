@@ -78,7 +78,7 @@ func (pc *ProtocolChecker) initBuiltinProtocols() {
 
 // CheckProtocol validates that a type implements a protocol
 func (pc *ProtocolChecker) CheckProtocol(typ ir.Type, protocolName string) bool {
-	protocol, ok := pc.protocols[protocolName]
+	_, ok := pc.protocols[protocolName]
 	if !ok {
 		logger.Warn("Unknown protocol", "name", protocolName)
 		return false

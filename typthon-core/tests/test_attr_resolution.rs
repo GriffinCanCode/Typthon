@@ -1,4 +1,5 @@
-use typthon::{Type, TypeContext, ClassSchema};
+use typthon::{Type, TypeContext};
+use typthon::compiler::types::ClassSchema;
 use std::sync::Arc;
 
 #[test]
@@ -170,7 +171,7 @@ fn test_inheritance_attributes() {
 #[test]
 fn test_refinement_type_attributes() {
     use typthon::Type;
-    use typthon::core::types::Predicate;
+    use typthon::compiler::types::Predicate;
 
     let ctx = Arc::new(TypeContext::new());
 

@@ -8,12 +8,20 @@ use std::ptr;
 
 use crate::compiler::frontend::parse_module;
 use crate::compiler::analysis::TypeChecker;
-use crate::infrastructure::init_logging;
+use crate::infrastructure::logging::{init_logging, LogConfig, LogFormat, LogOutput};
+use tracing::Level;
 
 /// Initialize the type checker (called once from Go)
 #[no_mangle]
 pub extern "C" fn typthon_init_checker() {
-    init_logging();
+    let config = LogConfig {
+        level: Level::INFO,
+        format: LogFormat::Compact,
+        output: LogOutput::Stderr,
+        span_events: false,
+        filter: None,
+    };
+    let _ = init_logging(config);
 }
 
 /// Cleanup type checker resources
@@ -64,15 +72,17 @@ pub extern "C" fn typthon_check_source(source: *const c_char, len: i32) -> i32 {
 
 fn typthon_check_source_impl(source: &str) -> i32 {
     // Parse and type check
-    let ast = match parse_module(source, "input") {
+    let ast = match parse_module(source) {
         Ok(ast) => ast,
         Err(_) => return -3,
     };
 
     let mut checker = TypeChecker::new();
-    match checker.check_module(&ast) {
-        Ok(_) => 0,
-        Err(_) => -4,
+    let errors = checker.check(&ast);
+    if errors.is_empty() {
+        0
+    } else {
+        -4
     }
 }
 

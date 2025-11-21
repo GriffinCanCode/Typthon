@@ -254,16 +254,91 @@ impl Config {
     }
 
     fn matches_glob(path: &Path, pattern: &str) -> bool {
-        // Simple glob matching (could be enhanced with glob crate)
+        // Simple but effective glob matching
         let path_str = path.to_string_lossy();
+        let path_str = path_str.as_ref();
 
-        if pattern.contains('*') {
-            // Convert glob pattern to regex-like matching
-            let pattern = pattern.replace("**", ".*").replace("*", "[^/]*");
-            path_str.contains(&pattern.replace(".*", ""))
-        } else {
-            path_str.contains(pattern)
+        if !pattern.contains('*') {
+            return path_str.contains(pattern);
         }
+
+        // Normalize path separators
+        let path_normalized = path_str.replace('\\', "/");
+        let pattern_normalized = pattern.replace('\\', "/");
+
+        // Handle ** specially - it matches any number of path segments
+        if pattern_normalized.contains("**") {
+            let parts: Vec<&str> = pattern_normalized.split("**").collect();
+            Self::match_double_star(&path_normalized, &parts)
+        } else {
+            // Simple * matching within a segment
+            Self::match_single_star(&path_normalized, &pattern_normalized)
+        }
+    }
+
+    fn match_single_star(text: &str, pattern: &str) -> bool {
+        let parts: Vec<&str> = pattern.split('*').collect();
+        if parts.is_empty() {
+            return true;
+        }
+
+        let mut pos = 0;
+        for (i, &part) in parts.iter().enumerate() {
+            if i == 0 {
+                if !text[pos..].starts_with(part) {
+                    return false;
+                }
+                pos += part.len();
+            } else if i == parts.len() - 1 {
+                return text[pos..].ends_with(part);
+            } else if let Some(idx) = text[pos..].find(part) {
+                pos += idx + part.len();
+            } else {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn match_double_star(text: &str, parts: &[&str]) -> bool {
+        if parts.is_empty() {
+            return true;
+        }
+
+        let first = parts[0];
+        let last = parts[parts.len() - 1];
+
+        // Check if first part matches start of path
+        if !first.is_empty() {
+            let first_trimmed = first.trim_end_matches('/');
+            if !first_trimmed.is_empty() {
+                if !text.starts_with(first_trimmed) {
+                    return false;
+                }
+            }
+        }
+
+        // Check if last part matches end of path
+        if !last.is_empty() {
+            let last_trimmed = last.trim_start_matches('/');
+            if !last_trimmed.is_empty() {
+                if !Self::match_single_star(text, &format!("*{}", last_trimmed)) {
+                    return false;
+                }
+            }
+        }
+
+        // Check middle parts exist somewhere in the path
+        for &part in &parts[1..parts.len().saturating_sub(1)] {
+            if !part.is_empty() {
+                let part_trimmed = part.trim_matches('/');
+                if !part_trimmed.is_empty() && !text.contains(part_trimmed) {
+                    return false;
+                }
+            }
+        }
+
+        true
     }
 
     /// Check if a path should be checked based on include/exclude patterns

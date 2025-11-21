@@ -1,5 +1,11 @@
 """Typthon: High-performance gradual type system for Python."""
 
+# Import Rust extension bindings
+try:
+    from typthon.typthon import TypeValidator
+except ImportError:
+    TypeValidator = None
+
 from typthon.decorators import type, infer
 from typthon.checker import check
 from typthon.core import Runtime, validate
@@ -28,6 +34,7 @@ __all__ = [
     "validate",
     # Runtime
     "Runtime",
+    "TypeValidator",
     # Type variables
     "T", "U", "V",
     "TypeVar",

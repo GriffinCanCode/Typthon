@@ -82,14 +82,9 @@ impl ParallelAnalyzer {
             .map(|task| (task.id, task.clone()))
             .collect();
 
-        // Process each layer in parallel
-        for layer in layers {
-            let tasks_in_layer: Vec<_> = layer.iter()
-                .filter_map(|id| task_map.get(id).map(|t| t.clone()))
-                .collect();
-
-            // Analyze layer in parallel
-            let layer_results: Vec<_> = tasks_in_layer
+        // If no dependency info, analyze all modules in parallel
+        if layers.is_empty() && !modules.is_empty() {
+            let layer_results: Vec<_> = modules
                 .par_iter()
                 .map(|task| self.analyze_task(task))
                 .collect();
@@ -97,6 +92,24 @@ impl ParallelAnalyzer {
             // Store results
             for result in layer_results {
                 self.results.insert(result.id, result);
+            }
+        } else {
+            // Process each layer in parallel
+            for layer in layers {
+                let tasks_in_layer: Vec<_> = layer.iter()
+                    .filter_map(|id| task_map.get(id).map(|t| t.clone()))
+                    .collect();
+
+                // Analyze layer in parallel
+                let layer_results: Vec<_> = tasks_in_layer
+                    .par_iter()
+                    .map(|task| self.analyze_task(task))
+                    .collect();
+
+                // Store results
+                for result in layer_results {
+                    self.results.insert(result.id, result);
+                }
             }
         }
 
@@ -260,7 +273,7 @@ impl ParallelAnalyzer {
     }
 
     /// Extract inferred types from type context for caching
-    fn extract_types_from_context(&self, _module_id: &ModuleId) -> Vec<String> {
+    fn extract_types_from_context(&self, _module_id: &ModuleId) -> Vec<(String, crate::compiler::types::Type)> {
         // Extract type information from the shared context
         // This would collect all variable->type mappings for the module
         // For now, return empty vec as types are stored in shared context
@@ -296,12 +309,12 @@ mod tests {
 
         let tasks = vec![
             AnalysisTask {
-                id: ModuleId(1),
+                id: ModuleId::new(1),
                 path: PathBuf::from("test1.py"),
                 content: "x = 1 + 2".to_string(),
             },
             AnalysisTask {
-                id: ModuleId(2),
+                id: ModuleId::new(2),
                 path: PathBuf::from("test2.py"),
                 content: "y = \"hello\"".to_string(),
             },
@@ -322,7 +335,7 @@ mod tests {
         let analyzer = ParallelAnalyzer::new(context, cache.clone(), incremental, 1);
 
         let task = AnalysisTask {
-            id: ModuleId(1),
+            id: ModuleId::new(1),
             path: PathBuf::from("test.py"),
             content: "x = 1".to_string(),
         };
