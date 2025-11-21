@@ -250,9 +250,88 @@ impl ConstraintSolver {
         }
     }
 
-    fn check_protocol(&self, _ty: &Type, _methods: &[(String, Type)]) -> Result<bool, TypeError> {
-        // TODO: Implement protocol checking
-        Ok(false)
+    pub fn check_protocol(&self, ty: &Type, methods: &[(String, Type)]) -> Result<bool, TypeError> {
+        // Get context or defer
+        let ctx = match &self.ctx {
+            Some(c) => c,
+            None => return Ok(false),
+        };
+
+        // For each required method, check if type has it with compatible signature
+        for (method_name, expected_method_type) in methods {
+            match ctx.has_attribute(ty, method_name) {
+                Some(actual_method_type) => {
+                    // Verify method type compatibility with variance
+                    if !self.check_method_compatibility(&actual_method_type, expected_method_type)? {
+                        return Err(TypeError::new(
+                            crate::errors::ErrorKind::TypeMismatch {
+                                expected: format!("method '{}' with type {}", method_name, expected_method_type),
+                                found: format!("method '{}' with incompatible type {}", method_name, actual_method_type),
+                            },
+                            SourceLocation::new(0, 0, 0, 0),
+                        ));
+                    }
+                }
+                None => {
+                    // Missing required method
+                    let available = ctx.get_attributes(ty);
+                    let similar = crate::errors::find_similar_names(method_name, &available, 2);
+
+                    let mut error = TypeError::new(
+                        crate::errors::ErrorKind::InvalidAttribute {
+                            ty: ty.to_string(),
+                            attr: method_name.clone(),
+                        },
+                        SourceLocation::new(0, 0, 0, 0),
+                    );
+
+                    if !similar.is_empty() {
+                        error = error.with_suggestions(
+                            similar.iter()
+                                .take(3)
+                                .map(|s| format!("Protocol requires '{}', did you mean '{}'?", method_name, s))
+                                .collect()
+                        );
+                    } else {
+                        error = error.with_suggestion(
+                            format!("Type '{}' must implement method '{}' to satisfy protocol", ty, method_name)
+                        );
+                    }
+
+                    return Err(error);
+                }
+            }
+        }
+
+        Ok(true)
+    }
+
+    /// Check if actual method type is compatible with expected (variance-aware)
+    pub fn check_method_compatibility(&self, actual: &Type, expected: &Type) -> Result<bool, TypeError> {
+        match (actual, expected) {
+            // Both are functions: check contravariant params, covariant return
+            (Type::Function(actual_params, actual_ret), Type::Function(expected_params, expected_ret)) => {
+                if actual_params.len() != expected_params.len() {
+                    return Ok(false);
+                }
+
+                // Parameters are contravariant: expected <: actual
+                for (expected_param, actual_param) in expected_params.iter().zip(actual_params.iter()) {
+                    if !expected_param.is_subtype(actual_param) {
+                        return Ok(false);
+                    }
+                }
+
+                // Return type is covariant: actual <: expected
+                if !actual_ret.is_subtype(expected_ret) {
+                    return Ok(false);
+                }
+
+                Ok(true)
+            }
+            // Non-function types: simple subtyping
+            (actual_ty, expected_ty) => Ok(actual_ty.is_subtype(expected_ty)),
+        }
     }
 
     fn check_bounded(&mut self, var: &Type, bound: &Type) -> Result<bool, TypeError> {
@@ -332,6 +411,48 @@ impl ConstraintSolver {
 
     pub fn errors(&self) -> &[TypeError] {
         &self.errors
+    }
+
+    /// Create protocol constraint from method requirements
+    pub fn protocol_constraint(ty: Type, methods: Vec<(String, Type)>) -> Constraint {
+        Constraint::Protocol(ty, methods)
+    }
+
+    /// Compose two protocols into one (union of requirements)
+    pub fn compose_protocols(methods1: &[(String, Type)], methods2: &[(String, Type)]) -> Vec<(String, Type)> {
+        let mut composed = methods1.to_vec();
+
+        for (name, ty) in methods2 {
+            // If method exists in both, keep the more specific type
+            if let Some(existing) = composed.iter_mut().find(|(n, _)| n == name) {
+                // Take intersection of types (more specific)
+                let intersected = Type::intersection(vec![existing.1.clone(), ty.clone()]);
+                existing.1 = intersected;
+            } else {
+                composed.push((name.clone(), ty.clone()));
+            }
+        }
+
+        composed
+    }
+
+    /// Check if type satisfies multiple protocols
+    pub fn check_protocols(&self, ty: &Type, protocols: &[Vec<(String, Type)>]) -> Result<bool, Vec<TypeError>> {
+        let mut errors = Vec::new();
+
+        for protocol_methods in protocols {
+            match self.check_protocol(ty, protocol_methods) {
+                Ok(true) => continue,
+                Ok(false) => continue, // Deferred
+                Err(e) => errors.push(e),
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(true)
+        } else {
+            Err(errors)
+        }
     }
 }
 
@@ -500,6 +621,70 @@ mod tests {
         let mut solver = ConstraintSolver::new();
         solver.add_constraint(Constraint::Hashable(Type::List(Box::new(Type::Int))));
         assert!(solver.solve().is_err());
+    }
+
+    #[test]
+    fn test_protocol_constraint() {
+        use std::sync::Arc;
+        use crate::core::types::TypeContext;
+
+        let ctx = Arc::new(TypeContext::new());
+        let mut solver = ConstraintSolver::with_context(ctx.clone());
+
+        // Test protocol checking: str has upper() method
+        let protocol_methods = vec![
+            ("upper".to_string(), Type::Function(vec![], Box::new(Type::Str))),
+        ];
+
+        solver.add_constraint(Constraint::Protocol(Type::Str, protocol_methods));
+        assert!(solver.solve().is_ok());
+    }
+
+    #[test]
+    fn test_protocol_missing_method() {
+        use std::sync::Arc;
+        use crate::core::types::TypeContext;
+
+        let ctx = Arc::new(TypeContext::new());
+        let mut solver = ConstraintSolver::with_context(ctx.clone());
+
+        // Test protocol checking: int doesn't have upper() method
+        let protocol_methods = vec![
+            ("upper".to_string(), Type::Function(vec![], Box::new(Type::Str))),
+        ];
+
+        solver.add_constraint(Constraint::Protocol(Type::Int, protocol_methods));
+        assert!(solver.solve().is_err());
+    }
+
+    #[test]
+    fn test_protocol_composition() {
+        let methods1 = vec![
+            ("foo".to_string(), Type::Int),
+        ];
+        let methods2 = vec![
+            ("bar".to_string(), Type::Str),
+        ];
+
+        let composed = ConstraintSolver::compose_protocols(&methods1, &methods2);
+        assert_eq!(composed.len(), 2);
+        assert!(composed.iter().any(|(n, _)| n == "foo"));
+        assert!(composed.iter().any(|(n, _)| n == "bar"));
+    }
+
+    #[test]
+    fn test_method_variance() {
+        let solver = ConstraintSolver::new();
+
+        // Covariant return: actual returns subtype
+        let actual = Type::Function(vec![Type::Any], Box::new(Type::Int));
+        let expected = Type::Function(vec![Type::Any], Box::new(Type::Any));
+        assert!(solver.check_method_compatibility(&actual, &expected).unwrap());
+
+        // Contravariant params: actual accepts supertype
+        let actual = Type::Function(vec![Type::Any], Box::new(Type::Int));
+        let expected = Type::Function(vec![Type::Int], Box::new(Type::Int));
+        assert!(solver.check_method_compatibility(&actual, &expected).unwrap());
     }
 }
 
