@@ -17,6 +17,7 @@ func Optimize(prog *ir.Program, level int) *ir.Program {
 
 	// Level 1: Basic optimizations
 	prog = ConstantFold(prog)
+	prog = PeepholeOptimize(prog)
 	prog = DeadCodeElimination(prog)
 
 	if level >= 2 {
