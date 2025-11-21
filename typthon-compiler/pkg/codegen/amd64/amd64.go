@@ -10,6 +10,7 @@ import (
 	"io"
 
 	"github.com/GriffinCanCode/typthon-compiler/pkg/ir"
+	"github.com/GriffinCanCode/typthon-compiler/pkg/logger"
 	"github.com/GriffinCanCode/typthon-compiler/pkg/ssa"
 )
 
@@ -31,15 +32,20 @@ func NewGenerator(w io.Writer) *Generator {
 
 // Generate emits assembly for an SSA program
 func (g *Generator) Generate(prog *ssa.Program) error {
+	logger.Debug("Generating amd64 assembly", "functions", len(prog.Functions))
+
 	// Emit assembly header
 	fmt.Fprintf(g.w, "\t.text\n")
 
 	for _, fn := range prog.Functions {
+		logger.Debug("Generating function assembly", "arch", "amd64", "name", fn.Name)
 		if err := g.generateFunction(fn); err != nil {
+			logger.Error("Failed to generate function", "arch", "amd64", "name", fn.Name, "error", err)
 			return err
 		}
 	}
 
+	logger.Info("amd64 code generation complete", "functions", len(prog.Functions))
 	return nil
 }
 
@@ -48,6 +54,12 @@ func (g *Generator) generateFunction(fn *ssa.Function) error {
 	g.regs.Reset()
 	g.valRegs = make(map[ir.Value]string)
 	g.stackOff = 0
+
+	instCount := 0
+	for _, block := range fn.Blocks {
+		instCount += len(block.Insts)
+	}
+	logger.LogCodeGen("amd64", fn.Name, instCount)
 
 	// Map parameters to their argument registers
 	g.mapParameters(fn)
@@ -82,9 +94,11 @@ func (g *Generator) generateBlock(block *ssa.Block) error {
 		fmt.Fprintf(g.w, ".L%s:\n", block.Label)
 	}
 
-	// Emit phi nodes (none in Phase 1)
+	// Emit phi nodes for SSA merge points
 	for _, phi := range block.Phis {
-		_ = phi // TODO: implement when we have control flow
+		if err := g.generatePhi(phi, block); err != nil {
+			return err
+		}
 	}
 
 	// Emit instructions
@@ -96,6 +110,29 @@ func (g *Generator) generateBlock(block *ssa.Block) error {
 
 	// Emit terminator
 	return g.generateTerm(block.Term)
+}
+
+// generatePhi emits assembly for phi nodes
+// Phi nodes are resolved by placing moves at predecessor block ends
+func (g *Generator) generatePhi(phi *ssa.Phi, block *ssa.Block) error {
+	// Allocate destination register for phi result
+	destReg := g.allocReg(phi.Dest)
+
+	// For each predecessor, we need to insert moves at the end
+	// of the predecessor block (before the terminator)
+	// In a proper implementation, this would be done in a separate pass
+	// For now, we just allocate the destination register and rely on
+	// the IR builder to have already resolved phi nodes for simple cases
+
+	logger.Debug("Processing phi node", "dest", destReg, "values", len(phi.Values))
+
+	// If only one value (degenerate phi), just do a simple move
+	if len(phi.Values) == 1 {
+		srcReg := g.valueReg(phi.Values[0].Value)
+		fmt.Fprintf(g.w, "\tmovq %s, %s\n", srcReg, destReg)
+	}
+
+	return nil
 }
 
 // generateInst emits assembly for an instruction
@@ -120,23 +157,60 @@ func (g *Generator) generateBinOp(binop *ir.BinOp) error {
 	rightReg := g.valueReg(binop.R)
 	destReg := g.allocReg(binop.Dest)
 
-	// Move left operand to destination
-	fmt.Fprintf(g.w, "\tmovq %s, %s\n", leftReg, destReg)
-
-	// Perform operation
 	switch binop.Op {
+	// Arithmetic
 	case ir.OpAdd:
+		fmt.Fprintf(g.w, "\tmovq %s, %s\n", leftReg, destReg)
 		fmt.Fprintf(g.w, "\taddq %s, %s\n", rightReg, destReg)
 	case ir.OpSub:
+		fmt.Fprintf(g.w, "\tmovq %s, %s\n", leftReg, destReg)
 		fmt.Fprintf(g.w, "\tsubq %s, %s\n", rightReg, destReg)
 	case ir.OpMul:
+		fmt.Fprintf(g.w, "\tmovq %s, %s\n", leftReg, destReg)
 		fmt.Fprintf(g.w, "\timulq %s, %s\n", rightReg, destReg)
 	case ir.OpDiv:
-		// Division is more complex (uses rax/rdx)
 		fmt.Fprintf(g.w, "\tmovq %s, %%rax\n", leftReg)
-		fmt.Fprintf(g.w, "\tcqto\n") // Sign-extend rax into rdx
+		fmt.Fprintf(g.w, "\tcqto\n")
 		fmt.Fprintf(g.w, "\tidivq %s\n", rightReg)
 		fmt.Fprintf(g.w, "\tmovq %%rax, %s\n", destReg)
+
+	// Comparisons
+	case ir.OpEq:
+		fmt.Fprintf(g.w, "\tcmpq %s, %s\n", rightReg, leftReg)
+		fmt.Fprintf(g.w, "\tsete %%al\n")
+		fmt.Fprintf(g.w, "\tmovzbq %%al, %s\n", destReg)
+	case ir.OpNe:
+		fmt.Fprintf(g.w, "\tcmpq %s, %s\n", rightReg, leftReg)
+		fmt.Fprintf(g.w, "\tsetne %%al\n")
+		fmt.Fprintf(g.w, "\tmovzbq %%al, %s\n", destReg)
+	case ir.OpLt:
+		fmt.Fprintf(g.w, "\tcmpq %s, %s\n", rightReg, leftReg)
+		fmt.Fprintf(g.w, "\tsetl %%al\n")
+		fmt.Fprintf(g.w, "\tmovzbq %%al, %s\n", destReg)
+	case ir.OpLe:
+		fmt.Fprintf(g.w, "\tcmpq %s, %s\n", rightReg, leftReg)
+		fmt.Fprintf(g.w, "\tsetle %%al\n")
+		fmt.Fprintf(g.w, "\tmovzbq %%al, %s\n", destReg)
+	case ir.OpGt:
+		fmt.Fprintf(g.w, "\tcmpq %s, %s\n", rightReg, leftReg)
+		fmt.Fprintf(g.w, "\tsetg %%al\n")
+		fmt.Fprintf(g.w, "\tmovzbq %%al, %s\n", destReg)
+	case ir.OpGe:
+		fmt.Fprintf(g.w, "\tcmpq %s, %s\n", rightReg, leftReg)
+		fmt.Fprintf(g.w, "\tsetge %%al\n")
+		fmt.Fprintf(g.w, "\tmovzbq %%al, %s\n", destReg)
+
+	// Boolean operations
+	case ir.OpAnd:
+		fmt.Fprintf(g.w, "\tmovq %s, %s\n", leftReg, destReg)
+		fmt.Fprintf(g.w, "\tandq %s, %s\n", rightReg, destReg)
+	case ir.OpOr:
+		fmt.Fprintf(g.w, "\tmovq %s, %s\n", leftReg, destReg)
+		fmt.Fprintf(g.w, "\torq %s, %s\n", rightReg, destReg)
+	case ir.OpXor:
+		fmt.Fprintf(g.w, "\tmovq %s, %s\n", leftReg, destReg)
+		fmt.Fprintf(g.w, "\txorq %s, %s\n", rightReg, destReg)
+
 	default:
 		return fmt.Errorf("unsupported operation: %v", binop.Op)
 	}
@@ -200,8 +274,8 @@ func (g *Generator) generateTerm(term ir.Terminator) error {
 
 	case *ir.CondBranch:
 		condReg := g.valueReg(t.Cond)
-		fmt.Fprintf(g.w, "\ttestq %s, %s\n", condReg, condReg)
-		fmt.Fprintf(g.w, "\tjne .L%s\n", t.TrueBlock)
+		fmt.Fprintf(g.w, "\ttestq $1, %s\n", condReg)
+		fmt.Fprintf(g.w, "\tjnz .L%s\n", t.TrueBlock)
 		fmt.Fprintf(g.w, "\tjmp .L%s\n", t.FalseBlock)
 
 	default:

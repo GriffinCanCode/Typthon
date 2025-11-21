@@ -260,8 +260,65 @@ impl BiInfer {
 
     fn synth_comprehension(&mut self, generators: &[Comprehension]) {
         for gen in generators {
-            let _ = self.synthesize(&gen.iter); // TODO: Bind target to element type
+            // Infer the type of the iterable
+            let iter_type = self.synthesize(&gen.iter);
+
+            // Extract element type and bind target variable
+            let elem_type = self.extract_element_type(&iter_type);
+
+            // Bind target to element type in context
+            self.bind_target_to_type(&gen.target, &elem_type);
+
+            // Check filter conditions
             gen.ifs.iter().for_each(|cond| { self.check(cond, &Type::Bool); });
+        }
+    }
+
+    /// Extract element type from an iterable type
+    fn extract_element_type(&self, iter_type: &Type) -> Type {
+        match iter_type {
+            Type::List(elem) => *elem.clone(),
+            Type::Set(elem) => *elem.clone(),
+            Type::Tuple(elems) => Type::union(elems.clone()),
+            Type::Dict(key, _) => *key.clone(), // Iterating dict yields keys
+            Type::Str => Type::Str, // Iterating string yields strings
+            Type::Generic(name, args) if name == "Iterator" || name == "Iterable" => {
+                args.first().cloned().unwrap_or_else(|| self.ctx.fresh_var())
+            }
+            _ => self.ctx.fresh_var(),
+        }
+    }
+
+    /// Bind a target expression to a type
+    fn bind_target_to_type(&mut self, target: &Expr, ty: &Type) {
+        match target {
+            Expr::Name(name) => {
+                self.ctx.set_type(name.id.to_string(), ty.clone());
+            }
+            Expr::Tuple(tuple) => {
+                // Destructuring tuple - split type
+                if let Type::Tuple(elem_types) = ty {
+                    for (target_elem, elem_ty) in tuple.elts.iter().zip(elem_types.iter()) {
+                        self.bind_target_to_type(target_elem, elem_ty);
+                    }
+                } else {
+                    // Try to extract tuple elements
+                    for target_elem in &tuple.elts {
+                        self.bind_target_to_type(target_elem, &self.ctx.fresh_var());
+                    }
+                }
+            }
+            Expr::List(list) => {
+                // Destructuring list
+                if let Type::List(elem) = ty {
+                    for target_elem in &list.elts {
+                        self.bind_target_to_type(target_elem, elem);
+                    }
+                }
+            }
+            _ => {
+                // Other patterns not yet supported
+            }
         }
     }
 
