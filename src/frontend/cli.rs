@@ -92,8 +92,6 @@ impl Cli {
         let mut count = 0;
         let mut all_errors = Vec::new();
 
-        let pattern = if self.config.recursive { "**/*.py" } else { "*.py" };
-
         for entry in glob::glob(&format!("{}/**/*.py", dir.display()))
             .map_err(|e| format!("Glob pattern error: {}", e))? {
 

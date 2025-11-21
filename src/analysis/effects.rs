@@ -83,9 +83,8 @@ impl EffectAnalyzer {
                 // Exception handling adds Exception effect
                 try_stmt.body.iter().for_each(|s| self.analyze_stmt(s));
                 for handler in &try_stmt.handlers {
-                    if let ExceptHandler::ExceptHandler(h) = handler {
-                        h.body.iter().for_each(|s| self.analyze_stmt(s));
-                    }
+                    let ExceptHandler::ExceptHandler(h) = handler;
+                    h.body.iter().for_each(|s| self.analyze_stmt(s));
                 }
             }
             Stmt::Expr(expr_stmt) => {

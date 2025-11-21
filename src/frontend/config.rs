@@ -268,8 +268,6 @@ impl Config {
 
     /// Check if a path should be checked based on include/exclude patterns
     pub fn should_check(&self, path: &Path) -> bool {
-        let path_str = path.to_string_lossy();
-
         // Check exclusions first
         for pattern in &self.paths.exclude {
             if Self::matches_glob(path, pattern) {

@@ -121,7 +121,7 @@ impl DiskCache {
         file.read_to_end(&mut compressed)?;
 
         // Decompress
-        let decompressed = zstd::decode_all(&compressed[..])?;
+        let _decompressed = zstd::decode_all(&compressed[..])?;
 
         // Deserialize (disabled - Type serialization not supported)
         // TODO: Implement custom serialization for Type

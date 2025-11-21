@@ -168,13 +168,12 @@ impl AstVisitor for DefaultWalker {
             self.visit_stmt(stmt);
         }
         for handler in &try_stmt.handlers {
-            if let ExceptHandler::ExceptHandler(h) = handler {
-                if let Some(ty) = &h.type_ {
-                    self.visit_expr(ty);
-                }
-                for stmt in &h.body {
-                    self.visit_stmt(stmt);
-                }
+            let ExceptHandler::ExceptHandler(h) = handler;
+            if let Some(ty) = &h.type_ {
+                self.visit_expr(ty);
+            }
+            for stmt in &h.body {
+                self.visit_stmt(stmt);
             }
         }
         for stmt in &try_stmt.orelse {
@@ -219,13 +218,12 @@ impl AstVisitor for DefaultWalker {
             self.visit_stmt(stmt);
         }
         for handler in &try_star.handlers {
-            if let ExceptHandler::ExceptHandler(h) = handler {
-                if let Some(ty) = &h.type_ {
-                    self.visit_expr(ty);
-                }
-                for stmt in &h.body {
-                    self.visit_stmt(stmt);
-                }
+            let ExceptHandler::ExceptHandler(h) = handler;
+            if let Some(ty) = &h.type_ {
+                self.visit_expr(ty);
+            }
+            for stmt in &h.body {
+                self.visit_stmt(stmt);
             }
         }
         for stmt in &try_star.orelse {

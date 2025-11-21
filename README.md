@@ -40,11 +40,35 @@ A high-performance gradual type system for Python with blazing-fast static analy
 
 ## Installation
 
+### Python Package
 ```bash
 pip install typthon
 ```
 
-## Usage
+### CLI Tool
+```bash
+cargo build --release --bin typthon
+# Binary will be at target/release/typthon
+```
+
+## CLI Usage
+
+Check Python files from the command line:
+
+```bash
+# Check a single file
+typthon script.py
+
+# Check multiple files
+typthon src/**/*.py
+
+# With options
+typthon --strict --no-color myproject/
+```
+
+For full CLI documentation, see [CLI_README.md](CLI_README.md).
+
+## Python API Usage
 
 ```python
 from typthon import type, check, infer

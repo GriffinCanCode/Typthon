@@ -11,9 +11,14 @@ crate-type = ["cdylib", "rlib"]
 [[bin]]
 name = "typthon"
 path = "src/bin/typthon.rs"
+required-features = []
+
+[features]
+default = []
+python = ["pyo3"]
 
 [dependencies]
-pyo3 = { version = "0.20", features = ["extension-module", "abi3-py310"] }
+pyo3 = { version = "0.20", features = ["extension-module", "abi3-py310"], optional = true }
 rustpython-parser = "0.3"
 petgraph = "0.6"
 dashmap = "5.5"
