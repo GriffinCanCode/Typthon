@@ -21,18 +21,54 @@ pub use call::{call_extern, FunctionCall, CallError};
 pub use abi::{CallingConvention, RegisterAllocator};
 pub use library::{Library, LoadError, SymbolError};
 
+use crate::logging::{info, debug};
+use core::sync::atomic::{AtomicUsize, Ordering};
+
+/// Global statistics counters
+static CALLS_MADE: AtomicUsize = AtomicUsize::new(0);
+static MARSHALING_ERRORS: AtomicUsize = AtomicUsize::new(0);
+static LIBRARIES_LOADED: AtomicUsize = AtomicUsize::new(0);
+
 /// Initialize interop subsystem
 pub fn init() {
-    // Future: Initialize FFI runtime, symbol caches, etc.
+    info!("Interop subsystem initializing");
+    CALLS_MADE.store(0, Ordering::Relaxed);
+    MARSHALING_ERRORS.store(0, Ordering::Relaxed);
+    LIBRARIES_LOADED.store(0, Ordering::Relaxed);
+    debug!("FFI and library loading capabilities ready");
+}
+
+/// Increment FFI call counter
+pub(crate) fn increment_calls() {
+    CALLS_MADE.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Increment marshaling error counter
+pub(crate) fn increment_marshaling_errors() {
+    MARSHALING_ERRORS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Increment libraries loaded counter
+pub(crate) fn increment_libraries_loaded() {
+    LIBRARIES_LOADED.fetch_add(1, Ordering::Relaxed);
 }
 
 /// Get interop statistics
 pub fn stats() -> InteropStats {
-    InteropStats {
-        calls_made: 0, // TODO: Add counters
-        marshaling_errors: 0,
-        libraries_loaded: 0,
-    }
+    let stats = InteropStats {
+        calls_made: CALLS_MADE.load(Ordering::Relaxed),
+        marshaling_errors: MARSHALING_ERRORS.load(Ordering::Relaxed),
+        libraries_loaded: LIBRARIES_LOADED.load(Ordering::Relaxed),
+    };
+
+    debug!(
+        ffi_calls = stats.calls_made,
+        errors = stats.marshaling_errors,
+        libraries = stats.libraries_loaded,
+        "Interop statistics retrieved"
+    );
+
+    stats
 }
 
 /// Interop statistics for monitoring

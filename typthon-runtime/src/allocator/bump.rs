@@ -44,6 +44,17 @@ impl BumpAllocator {
     #[inline]
     pub fn reset(&mut self, start: *mut u8, end: *mut u8) {
         debug_assert!(start <= end, "invalid arena bounds");
+
+        #[cfg(debug_assertions)]
+        {
+            use crate::logging::trace;
+            trace!(
+                old_remaining = self.remaining(),
+                new_size = (end as usize).saturating_sub(start as usize),
+                "Bump allocator reset to new arena"
+            );
+        }
+
         self.current = start;
         self.end = end;
     }

@@ -14,14 +14,19 @@ pub use print::{print_int, print_str, print_float, Output};
 pub use len::{len, HasLen};
 pub use iter::{Range, range};
 
+use crate::logging::{info, debug};
+
 /// Initialize builtins subsystem
 ///
 /// Pre-allocates resources and caches for builtin operations.
 pub fn init() {
+    info!("Builtins subsystem initializing");
     print::init();
+    debug!("Builtins initialized (print, len, iter)");
 }
 
 /// Cleanup builtins resources
 pub fn cleanup() {
+    debug!("Cleaning up builtins subsystem");
     print::cleanup();
 }

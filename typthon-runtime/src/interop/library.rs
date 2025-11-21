@@ -4,6 +4,7 @@
 
 use core::ffi::c_void;
 use core::ptr::NonNull;
+use crate::logging::{info, warn, debug, trace};
 
 #[cfg(unix)]
 use std::ffi::CString;
@@ -21,11 +22,13 @@ impl Library {
     ///
     /// Searches standard library paths. Use `load_path` for absolute paths.
     pub fn load(name: &str) -> Result<Self, LoadError> {
+        info!(library = name, "Loading library");
         Self::load_impl(name, false)
     }
 
     /// Load library from absolute path
     pub fn load_path(path: &str) -> Result<Self, LoadError> {
+        info!(library_path = path, "Loading library from path");
         Self::load_impl(path, true)
     }
 
@@ -45,7 +48,11 @@ impl Library {
         unsafe {
             let handle = dlopen(cname.as_ptr(), RTLD_NOW);
             NonNull::new(handle)
-                .map(|h| Self { handle: h })
+                .map(|h| {
+                    debug!(library = name, handle = ?h, "Library loaded successfully");
+                    super::increment_libraries_loaded();
+                    Self { handle: h }
+                })
                 .ok_or_else(|| {
                     let err = dlerror();
                     let msg = if !err.is_null() {
@@ -55,6 +62,7 @@ impl Library {
                     } else {
                         "Unknown error".into()
                     };
+                    warn!(library = name, error = %msg, "Failed to load library");
                     LoadError::LoadFailed(msg)
                 })
         }
@@ -78,7 +86,10 @@ impl Library {
         unsafe {
             let handle = LoadLibraryW(wide.as_ptr());
             NonNull::new(handle)
-                .map(|h| Self { handle: h })
+                .map(|h| {
+                    super::increment_libraries_loaded();
+                    Self { handle: h }
+                })
                 .ok_or_else(|| {
                     let code = GetLastError();
                     LoadError::LoadFailed(format!("Error code: {}", code))
@@ -88,7 +99,13 @@ impl Library {
 
     /// Get function pointer by symbol name
     pub fn symbol(&self, name: &str) -> Result<*const (), SymbolError> {
-        self.symbol_impl(name)
+        trace!(symbol = name, "Looking up symbol");
+        let result = self.symbol_impl(name);
+        match &result {
+            Ok(ptr) => debug!(symbol = name, address = ?ptr, "Symbol found"),
+            Err(_) => warn!(symbol = name, "Symbol not found"),
+        }
+        result
     }
 
     #[cfg(unix)]
@@ -133,6 +150,7 @@ impl Library {
 impl Drop for Library {
     #[cfg(unix)]
     fn drop(&mut self) {
+        trace!(handle = ?self.handle, "Closing library");
         extern "C" {
             fn dlclose(handle: *mut c_void) -> i32;
         }
@@ -143,6 +161,7 @@ impl Drop for Library {
 
     #[cfg(windows)]
     fn drop(&mut self) {
+        trace!(handle = ?self.handle, "Closing library");
         extern "system" {
             fn FreeLibrary(module: *mut c_void) -> i32;
         }

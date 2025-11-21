@@ -4,6 +4,7 @@
 //! Based on Python's generational GC and Bacon's incremental cycle collector.
 
 use crate::allocator::ObjectHeader;
+use crate::logging::{debug, trace, log_gc_start, log_gc_mark, log_gc_sweep};
 use dashmap::DashSet;
 use parking_lot::Mutex;
 use once_cell::sync::Lazy;
@@ -62,25 +63,46 @@ impl CycleCollector {
         // Only one collection at a time
         let _guard = self.collection_lock.lock();
 
-        if self.candidates.is_empty() {
+        let candidate_count = self.candidates.len();
+        if candidate_count == 0 {
             return;
         }
 
+        log_gc_start();
+        debug!(candidates = candidate_count, "Starting cycle collection");
+
         self.collections_run.fetch_add(1, Ordering::Relaxed);
-        self.total_objects.store(self.candidates.len(), Ordering::Relaxed);
+        self.total_objects.store(candidate_count, Ordering::Relaxed);
         self.reachable_objects.store(0, Ordering::Relaxed);
 
         // Phase 1: Mark all as white (assume garbage)
+        trace!("Phase 1: Marking all candidates as white");
         self.mark_white();
 
         // Phase 2: Mark reachable from roots as gray
+        trace!("Phase 2: Marking from roots");
         self.mark_from_roots();
 
         // Phase 3: Propagate gray to black (mark children)
+        trace!("Phase 3: Propagating marks");
         self.propagate_marks();
 
+        let reachable = self.reachable_objects.load(Ordering::Relaxed);
+        log_gc_mark(reachable);
+
         // Phase 4: Sweep white objects (unreachable cycles)
+        trace!("Phase 4: Sweeping unreachable objects");
         self.sweep();
+
+        let collected = self.cycles_collected.load(Ordering::Relaxed);
+        log_gc_sweep(collected, 0); // bytes_reclaimed tracked separately
+
+        debug!(
+            event = "gc_cycle_complete",
+            total = candidate_count,
+            reachable = reachable,
+            collected = collected
+        );
 
         // Clear candidates for next cycle
         self.candidates.clear();
@@ -147,6 +169,11 @@ impl CycleCollector {
 
                     if color == Color::White && refcount > 0 {
                         // Found a cycle: refcount > 0 but unreachable
+                        trace!(
+                            address = ?header_ptr,
+                            refcount = refcount,
+                            "Detected unreachable cycle"
+                        );
                         Some(header_ptr)
                     } else {
                         None
@@ -157,6 +184,10 @@ impl CycleCollector {
 
         let count = to_free.len();
         self.cycles_collected.fetch_add(count, Ordering::Relaxed);
+
+        if count > 0 {
+            debug!(cycles_freed = count, "Freeing detected cycles");
+        }
 
         // Free collected cycles
         for header_ptr in to_free {
@@ -222,6 +253,7 @@ impl CycleCollector {
 
 /// Initialize cycle collector (idempotent)
 pub(super) fn init_collector() {
+    debug!("Initializing cycle collector");
     Lazy::force(&COLLECTOR);
 }
 
@@ -238,6 +270,7 @@ pub fn collect_cycles() {
 /// - Circular reference suspected
 #[inline]
 pub fn register_potential_cycle(header: *mut ObjectHeader) {
+    trace!(address = ?header, "Registering potential cycle candidate");
     COLLECTOR.candidates.insert(header);
 }
 

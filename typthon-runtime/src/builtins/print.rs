@@ -3,6 +3,8 @@
 //! Design: Minimal overhead with optional buffering for performance.
 //! Supports multiple output targets (stdout, stderr, custom).
 
+use crate::logging::{debug, trace};
+
 /// Output target abstraction
 pub trait Output {
     fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), ()>;
@@ -18,11 +20,13 @@ static mut STDOUT: Option<&'static mut dyn Output> = None;
 
 /// Initialize print subsystem
 pub(crate) fn init() {
+    debug!("Print subsystem initialized");
     // Future: Initialize output buffers
 }
 
 /// Cleanup print subsystem
 pub(crate) fn cleanup() {
+    trace!("Cleaning up print subsystem");
     unsafe { STDOUT = None; }
 }
 

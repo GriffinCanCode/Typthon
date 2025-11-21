@@ -5,6 +5,7 @@
 //! Thread-safe atomic refcounting for concurrent access.
 
 use crate::allocator::ObjectHeader;
+use crate::logging::trace;
 use core::ptr::NonNull;
 use core::ops::{Deref, DerefMut};
 use core::marker::PhantomData;
@@ -30,6 +31,8 @@ impl<T> RefCount<T> {
         unsafe {
             header(ptr).refcount.store(1, Ordering::Relaxed);
         }
+
+        trace!(event = "refcount_new", address = ?ptr, count = 1);
 
         Self {
             ptr: unsafe { NonNull::new_unchecked(ptr) },
@@ -85,6 +88,8 @@ impl<T> RefCount<T> {
     #[cold]
     unsafe fn destroy(&self) {
         let h = header(self.ptr.as_ptr());
+
+        trace!(event = "refcount_destroy", address = ?self.ptr.as_ptr(), count = 0);
 
         // Call type-specific destructor if present
         if let Some(drop_fn) = h.type_info.as_ref().drop {

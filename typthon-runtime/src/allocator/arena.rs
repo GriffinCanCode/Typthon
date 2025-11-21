@@ -4,6 +4,7 @@
 //! Future: Thread-local arenas for zero contention.
 
 use std::alloc::{alloc, dealloc, Layout};
+use crate::logging::{debug, warn, trace};
 
 /// Arena size strategy - balances memory overhead vs syscall frequency
 const DEFAULT_ARENA_SIZE: usize = 64 * 1024; // 64KB
@@ -23,10 +24,19 @@ impl Arena {
     pub fn new(size: usize) -> Option<Self> {
         let layout = Layout::from_size_align(size, 8).ok()?;
 
+        trace!(size_bytes = size, "Requesting arena from OS");
+
         let start = unsafe { alloc(layout) };
         if start.is_null() {
+            warn!(size_bytes = size, "Failed to allocate arena from OS");
             return None;
         }
+
+        debug!(
+            address = ?start,
+            size_bytes = size,
+            "Arena allocated successfully"
+        );
 
         Some(Self { start, layout })
     }
@@ -48,6 +58,11 @@ impl Arena {
 
 impl Drop for Arena {
     fn drop(&mut self) {
+        trace!(
+            address = ?self.start,
+            size_bytes = self.layout.size(),
+            "Deallocating arena"
+        );
         unsafe {
             dealloc(self.start, self.layout);
         }
@@ -78,10 +93,27 @@ impl ArenaPool {
     /// Allocate new arena with minimum size requirement
     pub fn grow_with_min(&mut self, min_size: usize) -> Option<&Arena> {
         let size = self.current_size.max(min_size);
+
+        debug!(
+            min_required = min_size,
+            allocated_size = size,
+            arena_count = self.arenas.len(),
+            "Growing arena pool"
+        );
+
         let arena = Arena::new(size)?;
 
         // Grow arena size for next allocation (capped at MAX_ARENA_SIZE)
+        let old_size = self.current_size;
         self.current_size = (self.current_size * 2).min(MAX_ARENA_SIZE);
+
+        if old_size != self.current_size {
+            trace!(
+                old_size = old_size,
+                new_size = self.current_size,
+                "Arena size strategy updated"
+            );
+        }
 
         self.arenas.push(arena);
         self.arenas.last()

@@ -4,6 +4,7 @@
 
 use super::abi::{CallingConvention, RegisterAllocator};
 use super::types::{FfiType, FfiValue, TypedArg};
+use crate::logging::{debug, warn, trace, log_ffi_error};
 
 /// Function call descriptor
 pub struct FunctionCall {
@@ -39,14 +40,38 @@ impl FunctionCall {
     /// - Calling convention matches function
     pub unsafe fn call(&self, args: &[FfiValue]) -> Result<FfiValue, CallError> {
         if args.len() != self.arg_types.len() {
+            let err_msg = format!(
+                "Argument count mismatch: expected {}, got {}",
+                self.arg_types.len(),
+                args.len()
+            );
+            log_ffi_error("unknown", &err_msg);
+            super::increment_marshaling_errors();
             return Err(CallError::ArgCountMismatch {
                 expected: self.arg_types.len(),
                 got: args.len(),
             });
         }
 
+        trace!(
+            fn_ptr = ?self.ptr,
+            arg_count = args.len(),
+            convention = ?self.convention,
+            "Calling FFI function"
+        );
+
         // Platform-specific implementation
-        self.call_impl(args)
+        let result = self.call_impl(args);
+
+        match &result {
+            Ok(_) => super::increment_calls(),
+            Err(_) => {
+                warn!(fn_ptr = ?self.ptr, "FFI call failed");
+                super::increment_marshaling_errors();
+            }
+        }
+
+        result
     }
 
     /// Platform-specific call implementation
@@ -243,6 +268,13 @@ pub unsafe fn call_extern(
     args: &[TypedArg],
     return_type: FfiType,
 ) -> Result<FfiValue, CallError> {
+    debug!(
+        fn_ptr = ?fn_ptr,
+        arg_count = args.len(),
+        return_type = ?return_type,
+        "External function call"
+    );
+
     let arg_types: Vec<_> = args.iter().map(|a| a.ty).collect();
     let arg_values: Vec<_> = args.iter().map(|a| a.value).collect();
 

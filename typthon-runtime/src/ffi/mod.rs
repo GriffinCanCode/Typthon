@@ -13,16 +13,20 @@ pub use object::{typthon_object_new, typthon_object_destroy};
 pub use refcount::{typthon_incref, typthon_decref, typthon_refcount};
 
 use core::ptr::NonNull;
+use crate::logging::{info, debug};
 
 /// Initialize FFI subsystem (called once at program start)
 #[no_mangle]
 pub extern "C" fn typthon_ffi_init() {
+    info!("FFI subsystem initializing");
     // Future: Register signal handlers, set up thread-local storage
+    debug!("FFI ready for C interop");
 }
 
 /// Cleanup FFI subsystem (called at program exit)
 #[no_mangle]
 pub extern "C" fn typthon_ffi_cleanup() {
+    debug!("Cleaning up FFI subsystem");
     // Future: Flush pending operations, validate refcounts
 }
 
