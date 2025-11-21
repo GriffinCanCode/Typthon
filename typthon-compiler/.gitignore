@@ -1,0 +1,29 @@
+# Binaries
+/bin/
+*.exe
+*.test
+*.out
+
+# Go workspace
+/vendor/
+go.work
+go.work.sum
+
+# Build artifacts
+*.o
+*.a
+*.so
+*.dylib
+*.s
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+

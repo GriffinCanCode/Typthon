@@ -24,9 +24,18 @@ ENV/
 .pytest_cache/
 
 # Rust
+target_cli/
 target/
 Cargo.lock
 **/*.rs.bk
+
+# Compiler (Go)
+typthon-compiler/bin/
+typthon-compiler/vendor/
+
+# Runtime build artifacts
+typthon-runtime/target/
+
 
 # C++
 *.o

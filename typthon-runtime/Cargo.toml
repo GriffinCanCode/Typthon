@@ -1,0 +1,35 @@
+[package]
+name = "typthon-runtime"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.74"
+
+[lib]
+name = "typthon_runtime"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+# Zero dependencies - everything built from scratch
+# Minimal, fast, statically linkable
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "allocator"
+harness = false
+
+[[bench]]
+name = "gc"
+harness = false
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+strip = true
+panic = "abort"  # No unwinding in runtime
+
+[profile.dev]
+opt-level = 1  # Some optimization even in dev
+
