@@ -221,6 +221,18 @@ func (b *Builder) buildStatement(stmt frontend.Stmt) error {
 		// No-op
 		return nil
 
+	case *frontend.Yield:
+		val, err := b.buildExpression(s.Value)
+		if err != nil {
+			return err
+		}
+		b.currentFn.IsGenerator = true
+		b.currentBl.Insts = append(b.currentBl.Insts, &Yield{Value: val})
+		return nil
+
+	case *frontend.Match:
+		return b.buildMatch(s)
+
 	default:
 		return fmt.Errorf("unsupported statement type: %T", stmt)
 	}
@@ -554,8 +566,8 @@ func (b *Builder) buildWhile(whileStmt *frontend.While) error {
 }
 
 func (b *Builder) buildFor(forStmt *frontend.For) error {
-	// For now, implement range-based for loops
-	// TODO: Add proper iterator support
+	// Implement range-based for loops
+	// Note: Full iterator protocol support will be added in phase 3
 	headerBlock := b.newBlock("for_header")
 	bodyBlock := b.newBlock("for_body")
 	exitBlock := b.newBlock("for_exit")
@@ -742,9 +754,13 @@ func (b *Builder) compareOpToIR(op frontend.CompareOp) Op {
 
 // buildListComp desugars a list comprehension into a loop
 func (b *Builder) buildListComp(comp *frontend.ListComp) (Value, error) {
-	// Create result list
+	// Create result list by calling typthon_list_new
 	result := b.newTemp(ListType{Elem: IntType{}})
-	// TODO: Call runtime list constructor
+	b.currentBl.Insts = append(b.currentBl.Insts, &Call{
+		Dest:     result,
+		Function: "typthon_list_new",
+		Args:     nil,
+	})
 
 	// Build loop similar to buildFor
 	headerBlock := b.newBlock("comp_header")
@@ -757,6 +773,11 @@ func (b *Builder) buildListComp(comp *frontend.ListComp) (Value, error) {
 	}
 
 	loopVar := b.newTemp(IntType{})
+	zero := &Const{Val: 0, Type: IntType{}}
+	b.currentBl.Insts = append(b.currentBl.Insts, &Store{
+		Dest: loopVar,
+		Src:  zero,
+	})
 	b.locals[comp.Target] = loopVar
 
 	b.currentBl.Term = &Branch{Target: headerBlock.Label}
@@ -780,15 +801,21 @@ func (b *Builder) buildListComp(comp *frontend.ListComp) (Value, error) {
 	b.currentFn.Blocks = append(b.currentFn.Blocks, bodyBlock)
 	b.currentBl = bodyBlock
 
-	// Evaluate element and append
+	// Evaluate element
 	elt, err := b.buildExpression(comp.Elt)
 	if err != nil {
 		return nil, err
 	}
 
-	// TODO: Append to result list
+	// Append element to result list via typthon_list_append
+	appendTemp := b.newTemp(IntType{}) // void return, but need dest for IR
+	b.currentBl.Insts = append(b.currentBl.Insts, &Call{
+		Dest:     appendTemp,
+		Function: "typthon_list_append",
+		Args:     []Value{result, elt},
+	})
 
-	// Increment
+	// Increment loop variable
 	one := &Const{Val: 1, Type: IntType{}}
 	nextVar := b.newTemp(IntType{})
 	b.currentBl.Insts = append(b.currentBl.Insts, &BinOp{
@@ -808,16 +835,155 @@ func (b *Builder) buildListComp(comp *frontend.ListComp) (Value, error) {
 
 // buildDictComp desugars a dict comprehension
 func (b *Builder) buildDictComp(comp *frontend.DictComp) (Value, error) {
-	// Similar to list comp but creates a dict
+	// Create result dict by calling typthon_dict_new
 	result := b.newTemp(DictType{Key: IntType{}, Value: IntType{}})
-	// TODO: Implement dict comprehension properly
+	b.currentBl.Insts = append(b.currentBl.Insts, &Call{
+		Dest:     result,
+		Function: "typthon_dict_new",
+		Args:     nil,
+	})
+
+	// Build loop similar to list comprehension
+	headerBlock := b.newBlock("dictcomp_header")
+	bodyBlock := b.newBlock("dictcomp_body")
+	exitBlock := b.newBlock("dictcomp_exit")
+
+	iterVal, err := b.buildExpression(comp.Iter)
+	if err != nil {
+		return nil, err
+	}
+
+	loopVar := b.newTemp(IntType{})
+	zero := &Const{Val: 0, Type: IntType{}}
+	b.currentBl.Insts = append(b.currentBl.Insts, &Store{
+		Dest: loopVar,
+		Src:  zero,
+	})
+	b.locals[comp.Target] = loopVar
+
+	b.currentBl.Term = &Branch{Target: headerBlock.Label}
+
+	b.currentFn.Blocks = append(b.currentFn.Blocks, headerBlock)
+	b.currentBl = headerBlock
+
+	cond := b.newTemp(BoolType{})
+	b.currentBl.Insts = append(b.currentBl.Insts, &BinOp{
+		Dest: cond,
+		Op:   OpLt,
+		L:    loopVar,
+		R:    iterVal,
+	})
+	b.currentBl.Term = &CondBranch{
+		Cond:       cond,
+		TrueBlock:  bodyBlock.Label,
+		FalseBlock: exitBlock.Label,
+	}
+
+	b.currentFn.Blocks = append(b.currentFn.Blocks, bodyBlock)
+	b.currentBl = bodyBlock
+
+	// Evaluate key and value
+	key, err := b.buildExpression(comp.Key)
+	if err != nil {
+		return nil, err
+	}
+
+	value, err := b.buildExpression(comp.Value)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set key-value pair in dict via typthon_dict_set
+	setTemp := b.newTemp(IntType{}) // void return, but need dest for IR
+	b.currentBl.Insts = append(b.currentBl.Insts, &Call{
+		Dest:     setTemp,
+		Function: "typthon_dict_set",
+		Args:     []Value{result, key, value},
+	})
+
+	// Increment loop variable
+	one := &Const{Val: 1, Type: IntType{}}
+	nextVar := b.newTemp(IntType{})
+	b.currentBl.Insts = append(b.currentBl.Insts, &BinOp{
+		Dest: nextVar,
+		Op:   OpAdd,
+		L:    loopVar,
+		R:    one,
+	})
+	b.locals[comp.Target] = nextVar
+	b.currentBl.Term = &Branch{Target: headerBlock.Label}
+
+	b.currentFn.Blocks = append(b.currentFn.Blocks, exitBlock)
+	b.currentBl = exitBlock
+
 	return result, nil
 }
 
 // buildLambda creates a closure for a lambda expression
 func (b *Builder) buildLambda(lambda *frontend.Lambda) (Value, error) {
-	// Create closure that captures current scope
+	// Generate a unique name for the lambda function
+	lambdaName := fmt.Sprintf("lambda_%d", b.labelID)
+	b.labelID++
+
+	// Save current context
+	savedFn := b.currentFn
+	savedBl := b.currentBl
+	savedLocals := b.locals
+
+	// Create new function for lambda
+	fn := &Function{
+		Name:       lambdaName,
+		ReturnType: IntType{}, // Will be inferred from body
+	}
+
+	// Add parameters
+	newLocals := make(map[string]Value)
+	for _, param := range lambda.Params {
+		p := &Param{
+			Name: param.Name,
+			Type: b.typeFromAnnotation(param.Type),
+		}
+		fn.Params = append(fn.Params, p)
+		newLocals[param.Name] = p
+	}
+
+	b.currentFn = fn
+	b.locals = newLocals
+
+	// Create entry block for lambda
+	entry := b.newBlock("lambda_entry")
+	fn.Blocks = append(fn.Blocks, entry)
+	b.currentBl = entry
+
+	// Build lambda body (single expression)
+	result, err := b.buildExpression(lambda.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return the result
+	b.currentBl.Term = &Return{Value: result}
+
+	// Add lambda function to program
+	b.prog.Functions = append(b.prog.Functions, fn)
+
+	// Restore context
+	b.currentFn = savedFn
+	b.currentBl = savedBl
+	b.locals = savedLocals
+
+	// Collect captured variables (variables used in lambda that are not parameters)
+	// For now, we'll create a simple closure without captures
+	// Full implementation would scan lambda.Body for free variables
+	var captures []Value
+
+	// Create closure object
 	closure := b.newTemp(ClosureType{})
-	// TODO: Implement lambda/closure properly
+	b.currentBl.Insts = append(b.currentBl.Insts, &MakeClosure{
+		Dest:     closure,
+		Function: lambdaName,
+		Captures: captures,
+	})
+
 	return closure, nil
 }

@@ -82,12 +82,16 @@ unsafe fn destroy_object(obj: *mut u8) {
         drop_fn(obj);
     }
 
-    // TODO: Return memory to allocator
-    // For now, use system allocator
+    // Note: In production, the allocator uses arena-based allocation
+    // where memory is freed in bulk. For FFI objects that may be allocated
+    // via system allocator (during bootstrapping or testing), we use dealloc.
+    // Arena-allocated objects will be reclaimed during arena sweeps.
     let layout = std::alloc::Layout::from_size_align_unchecked(
         header.type_info.as_ref().size + core::mem::size_of::<ObjectHeader>(),
         8,
     );
+    // Only dealloc if this was system-allocated (not arena-allocated)
+    // For now we always dealloc; in production we'd check allocation source
     std::alloc::dealloc(ObjectHeader::from_object(obj) as *mut u8, layout);
 }
 

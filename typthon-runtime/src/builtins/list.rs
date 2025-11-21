@@ -39,7 +39,12 @@ static LIST_TYPE: TypeInfo = TypeInfo::with_drop(
 unsafe fn list_drop(ptr: *mut u8) {
     let data = ptr as *mut ListData;
     if !(*data).ptr.is_null() {
-        // TODO: Decrement refcount for all elements
+        // Decrement refcount for all elements
+        for i in 0..(*data).len {
+            let obj = *(*data).ptr.add(i);
+            decref_object(obj);
+        }
+
         let layout = Layout::from_size_align_unchecked(
             (*data).capacity * std::mem::size_of::<PyObject>(),
             std::mem::align_of::<PyObject>()
@@ -143,7 +148,12 @@ pub fn py_list_set(obj: PyObject, index: isize, value: PyObject) {
             panic!("List index out of range");
         }
 
-        // TODO: Decrement refcount of old value, increment refcount of new value
+        // Decrement refcount of old value
+        let old_value = *data.ptr.add(idx);
+        decref_object(old_value);
+
+        // Increment refcount of new value and store it
+        incref_object(value);
         *data.ptr.add(idx) = value;
     }
 }
@@ -179,7 +189,8 @@ pub fn py_list_append(obj: PyObject, value: PyObject) {
             data.capacity = new_capacity;
         }
 
-        // TODO: Increment refcount of value
+        // Increment refcount of value before storing
+        incref_object(value);
         *data.ptr.add(data.len) = value;
         data.len += 1;
     }

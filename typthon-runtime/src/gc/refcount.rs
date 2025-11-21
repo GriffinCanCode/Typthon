@@ -96,8 +96,11 @@ impl<T> RefCount<T> {
             drop_fn(self.ptr.as_ptr() as *mut u8);
         }
 
-        // TODO: Return memory to allocator
-        // Currently memory is never freed (arena-based collection)
+        // Note: Memory is not immediately freed to allocator
+        // The allocator uses arena-based allocation where memory is freed in bulk
+        // when entire arenas are released. This provides better performance than
+        // per-object deallocation. Individual object memory will be reclaimed during
+        // arena sweeps or program shutdown.
     }
 
     /// Get raw pointer

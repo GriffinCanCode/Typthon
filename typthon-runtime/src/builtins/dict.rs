@@ -14,6 +14,22 @@ use crate::objects::{PyObject, ObjectType, DictData, DictEntry};
 use crate::allocator::{with_thread_allocator, TypeInfo};
 use crate::gc::maybe_collect;
 
+/// Helper: increment refcount for object if it's a heap object
+#[inline]
+fn incref_object(obj: PyObject) {
+    if obj.is_ptr() {
+        crate::ffi::refcount::typthon_incref(obj.as_ptr().as_ptr() as *mut u8);
+    }
+}
+
+/// Helper: decrement refcount for object if it's a heap object
+#[inline]
+fn decref_object(obj: PyObject) {
+    if obj.is_ptr() {
+        crate::ffi::refcount::typthon_decref(obj.as_ptr().as_ptr() as *mut u8);
+    }
+}
+
 /// Static type info for dicts
 static DICT_TYPE: TypeInfo = TypeInfo::with_drop(
     std::mem::size_of::<DictData>(),
@@ -25,7 +41,15 @@ static DICT_TYPE: TypeInfo = TypeInfo::with_drop(
 unsafe fn dict_drop(ptr: *mut u8) {
     let data = ptr as *mut DictData;
     if !(*data).ptr.is_null() {
-        // TODO: Decrement refcount for all keys and values
+        // Decrement refcount for all keys and values
+        for i in 0..(*data).capacity {
+            let entry = &*(*data).ptr.add(i);
+            if entry.hash != 0 {
+                decref_object(entry.key);
+                decref_object(entry.value);
+            }
+        }
+
         let layout = Layout::from_size_align_unchecked(
             (*data).capacity * std::mem::size_of::<DictEntry>(),
             std::mem::align_of::<DictEntry>()
@@ -175,6 +199,9 @@ pub fn py_dict_set(obj: PyObject, key: PyObject, value: PyObject) {
             if entry.hash == 0 {
                 // Empty slot - insert new entry
                 entry.hash = hash;
+                // Increment refcounts for key and value
+                incref_object(key);
+                incref_object(value);
                 entry.key = key;
                 entry.value = value;
                 data.len += 1;
@@ -183,7 +210,9 @@ pub fn py_dict_set(obj: PyObject, key: PyObject, value: PyObject) {
 
             if entry.hash == hash && objects_equal(entry.key, key) {
                 // Existing key - update value
-                // TODO: Decrement refcount of old value
+                let old_value = entry.value;
+                decref_object(old_value);
+                incref_object(value);
                 entry.value = value;
                 return;
             }
@@ -262,17 +291,38 @@ unsafe fn resize_dict(obj: PyObject) {
 
 /// Compare two objects for equality
 fn objects_equal(a: PyObject, b: PyObject) -> bool {
+    // Small ints - direct comparison
     if a.is_int() && b.is_int() {
         return a.as_int() == b.as_int();
     }
 
+    // Special values (None, bool) - type comparison
     if a.is_special() && b.is_special() {
         return a.get_type() == b.get_type();
     }
 
-    // For heap objects, use identity comparison for now
-    // TODO: Implement proper __eq__ dispatch
-    a.as_ptr() == b.as_ptr()
+    // Heap objects - type-specific equality
+    if a.is_ptr() && b.is_ptr() {
+        let a_type = a.get_type();
+        let b_type = b.get_type();
+
+        if a_type != b_type {
+            return false;
+        }
+
+        match a_type {
+            ObjectType::String => crate::builtins::string::py_string_eq(a, b),
+            ObjectType::List | ObjectType::Dict | ObjectType::Tuple |
+            ObjectType::Function | ObjectType::Class | ObjectType::Instance => {
+                // For mutable types, use identity comparison
+                a.as_ptr() == b.as_ptr()
+            }
+            _ => false,
+        }
+    } else {
+        // Mixed types (int vs heap, special vs heap, etc.) are never equal
+        false
+    }
 }
 
 /// C FFI exports
