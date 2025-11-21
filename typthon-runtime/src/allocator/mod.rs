@@ -53,8 +53,8 @@ impl Allocator {
     }
 
     fn alloc_slow(&mut self, size: usize, align: usize) -> Option<NonNull<u8>> {
-        // Acquire new arena from pool (size check handled by arena allocator)
-        let arena = self.arenas.grow()?;
+        // Acquire new arena from pool, large enough for this allocation
+        let arena = self.arenas.grow_with_min(size + align)?;
         let (start, end) = arena.bounds();
 
         // Reset bump allocator to new arena

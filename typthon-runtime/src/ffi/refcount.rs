@@ -1,8 +1,10 @@
 //! Reference counting - C API for refcount operations
 //!
 //! Hot path operations with minimal overhead, inlined by compiler.
+//! Thread-safe atomic operations.
 
 use crate::allocator::ObjectHeader;
+use std::sync::atomic::Ordering;
 
 /// Increment reference count (hot path, always inlined)
 ///
@@ -11,17 +13,16 @@ use crate::allocator::ObjectHeader;
 /// - Object must be valid heap object
 /// - Overflow checked in debug builds
 #[no_mangle]
-#[inline(always)]
 pub extern "C" fn typthon_incref(obj: *mut u8) {
     if obj.is_null() {
         return;
     }
 
     unsafe {
-        let header = &mut *ObjectHeader::from_object(obj);
-        header.refcount += 1;
+        let header = &*ObjectHeader::from_object(obj);
+        let old = header.refcount.fetch_add(1, Ordering::Relaxed);
 
-        debug_assert!(header.refcount != 0, "refcount overflow");
+        debug_assert!(old < u32::MAX, "refcount overflow");
     }
 }
 
@@ -33,20 +34,20 @@ pub extern "C" fn typthon_incref(obj: *mut u8) {
 /// - Underflow checked in debug builds
 /// - Calls `typthon_object_destroy` when refcount hits zero
 #[no_mangle]
-#[inline(always)]
 pub extern "C" fn typthon_decref(obj: *mut u8) {
     if obj.is_null() {
         return;
     }
 
     unsafe {
-        let header = &mut *ObjectHeader::from_object(obj);
+        let header = &*ObjectHeader::from_object(obj);
+        let old = header.refcount.fetch_sub(1, Ordering::Release);
 
-        debug_assert!(header.refcount > 0, "refcount underflow");
+        debug_assert!(old > 0, "refcount underflow");
 
-        header.refcount -= 1;
-
-        if header.refcount == 0 {
+        if old == 1 {
+            // Synchronize with all previous decrements
+            std::sync::atomic::fence(Ordering::Acquire);
             // Cold path: destroy object
             destroy_object(obj);
         }
@@ -66,7 +67,7 @@ pub extern "C" fn typthon_refcount(obj: *const u8) -> u32 {
 
     unsafe {
         let header = &*ObjectHeader::from_object(obj as *mut u8);
-        header.refcount
+        header.refcount.load(Ordering::Relaxed)
     }
 }
 
@@ -96,7 +97,6 @@ unsafe fn destroy_object(obj: *mut u8) {
 /// - Returns null for null input
 /// - Otherwise same as `typthon_incref`
 #[no_mangle]
-#[inline(always)]
 pub extern "C" fn typthon_incref_ret(obj: *mut u8) -> *mut u8 {
     typthon_incref(obj);
     obj

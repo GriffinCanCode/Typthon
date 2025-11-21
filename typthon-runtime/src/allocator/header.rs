@@ -4,6 +4,7 @@
 //! All structures are C-compatible for FFI.
 
 use core::ptr::NonNull;
+use std::sync::atomic::AtomicU32;
 
 /// Object header (16 bytes) - prefixed before every heap object
 ///
@@ -11,10 +12,11 @@ use core::ptr::NonNull;
 /// - 8-byte alignment on all architectures
 /// - Single cache line access with small objects
 /// - Fast refcount operations without pointer chasing
+/// - Thread-safe atomic refcounting
 #[repr(C, align(8))]
 pub struct ObjectHeader {
     pub type_info: NonNull<TypeInfo>,
-    pub refcount: u32,
+    pub refcount: AtomicU32,
     pub flags: u32,
 }
 
@@ -24,7 +26,7 @@ impl ObjectHeader {
     pub const fn new(type_info: NonNull<TypeInfo>) -> Self {
         Self {
             type_info,
-            refcount: 1,
+            refcount: AtomicU32::new(1),
             flags: 0,
         }
     }

@@ -134,7 +134,7 @@ mod tests {
         let type_ptr = NonNull::new(&type_info as *const _ as *mut TypeInfo).unwrap();
 
         let header = ObjectHeader::new(type_ptr);
-        assert_eq!(header.refcount, 1);
+        assert_eq!(header.refcount.load(std::sync::atomic::Ordering::Relaxed), 1);
         assert_eq!(header.flags, 0);
         assert_eq!(header.type_info, type_ptr);
     }
@@ -182,8 +182,8 @@ mod tests {
 
         bump.reset(arena.as_mut_ptr(), unsafe { arena.as_mut_ptr().add(1024) });
 
-        let ptr = bump.try_alloc(64, 8).expect("bump alloc");
-        assert!(!ptr.as_ptr().is_null());
+        let _ptr = bump.try_alloc(64, 8).expect("bump alloc");
+        // NonNull pointer is guaranteed non-null by type
     }
 
     #[test]
@@ -271,7 +271,7 @@ mod tests {
 
         unsafe {
             let header = ObjectHeader::from_object(obj_ptr.as_ptr() as *mut u8);
-            assert_eq!((*header).refcount, 1);
+            assert_eq!((*header).refcount.load(std::sync::atomic::Ordering::Relaxed), 1);
             assert_eq!((*header).type_info, type_ptr);
         }
     }
@@ -327,8 +327,8 @@ mod tests {
     #[test]
     fn minimum_alignment() {
         let mut allocator = Allocator::new();
-        let ptr = allocator.alloc(8, 1).expect("min align");
-        assert!(!ptr.as_ptr().is_null());
+        let _ptr = allocator.alloc(8, 1).expect("min align");
+        // NonNull pointer is guaranteed non-null by type
     }
 
     #[test]

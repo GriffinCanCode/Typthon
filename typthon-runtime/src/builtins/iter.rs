@@ -21,7 +21,7 @@ impl Range {
 
     /// Check if range is empty
     #[inline]
-    pub const fn is_empty(&self) -> bool {
+    const fn range_is_empty(&self) -> bool {
         (self.step > 0 && self.current >= self.end) ||
         (self.step < 0 && self.current <= self.end)
     }
@@ -29,7 +29,7 @@ impl Range {
     /// Get remaining elements count
     #[inline]
     pub const fn len(&self) -> usize {
-        if self.is_empty() {
+        if self.range_is_empty() {
             return 0;
         }
 
@@ -49,7 +49,7 @@ impl Iterator for Range {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        if self.is_empty() {
+        if self.range_is_empty() {
             return None;
         }
 
@@ -75,7 +75,7 @@ impl ExactSizeIterator for Range {
 impl DoubleEndedIterator for Range {
     #[inline]
     fn next_back(&mut self) -> Option<Self::Item> {
-        if self.is_empty() {
+        if self.range_is_empty() {
             return None;
         }
 

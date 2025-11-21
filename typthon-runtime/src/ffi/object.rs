@@ -31,9 +31,9 @@ pub extern "C" fn typthon_object_new(size: usize) -> *mut u8 {
         }
 
         // Initialize header with default type info
-        let header = ptr as *mut ObjectHeader;
+        let _header = ptr as *mut ObjectHeader;
         // TODO: Use proper type info from allocator
-        // header.write(ObjectHeader::new(type_info));
+        // _header.write(ObjectHeader::new(type_info));
 
         // Return pointer to data (after header)
         ptr.add(core::mem::size_of::<ObjectHeader>())

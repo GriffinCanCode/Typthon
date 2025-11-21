@@ -2,8 +2,6 @@
 
 use super::*;
 use super::types::*;
-use super::marshal::*;
-use super::call::*;
 
 // Test helpers
 extern "C" fn add_i32(a: i32, b: i32) -> i32 {

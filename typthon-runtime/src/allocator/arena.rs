@@ -72,7 +72,13 @@ impl ArenaPool {
 
     /// Allocate new arena, growing size adaptively
     pub fn grow(&mut self) -> Option<&Arena> {
-        let arena = Arena::new(self.current_size)?;
+        self.grow_with_min(0)
+    }
+
+    /// Allocate new arena with minimum size requirement
+    pub fn grow_with_min(&mut self, min_size: usize) -> Option<&Arena> {
+        let size = self.current_size.max(min_size);
+        let arena = Arena::new(size)?;
 
         // Grow arena size for next allocation (capped at MAX_ARENA_SIZE)
         self.current_size = (self.current_size * 2).min(MAX_ARENA_SIZE);

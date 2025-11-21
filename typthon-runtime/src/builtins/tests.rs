@@ -36,7 +36,7 @@ fn test_range_negative_step() {
 #[test]
 fn test_range_empty() {
     let mut r = range(0, 0, 1);
-    assert!(r.is_empty());
+    assert_eq!(r.len(), 0);
     assert_eq!(r.next(), None);
 }
 
