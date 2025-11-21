@@ -18,7 +18,7 @@ use crate::gc::maybe_collect;
 #[inline]
 fn incref_object(obj: PyObject) {
     if obj.is_ptr() {
-        crate::ffi::refcount::typthon_incref(obj.as_ptr().as_ptr() as *mut u8);
+        crate::ffi::typthon_incref(obj.as_ptr().as_ptr() as *mut u8);
     }
 }
 
@@ -26,7 +26,7 @@ fn incref_object(obj: PyObject) {
 #[inline]
 fn decref_object(obj: PyObject) {
     if obj.is_ptr() {
-        crate::ffi::refcount::typthon_decref(obj.as_ptr().as_ptr() as *mut u8);
+        crate::ffi::typthon_decref(obj.as_ptr().as_ptr() as *mut u8);
     }
 }
 
@@ -187,7 +187,7 @@ pub fn py_dict_set(obj: PyObject, key: PyObject, value: PyObject) {
         // Check load factor and resize if needed
         if data.len * 4 >= data.capacity * 3 {
             resize_dict(obj);
-            let data = &mut (*obj.as_ptr().as_ptr()).data_mut().dict;
+            let _data = &mut (*obj.as_ptr().as_ptr()).data_mut().dict;
         }
 
         let mut index = (hash % data.capacity as u64) as usize;

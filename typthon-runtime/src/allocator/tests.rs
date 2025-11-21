@@ -130,7 +130,7 @@ mod tests {
 
     #[test]
     fn header_creation_initializes_correctly() {
-        let type_info = TypeInfo::simple(32, 8);
+        let type_info = TypeInfo::simple(32, 8, 1);
         let type_ptr = NonNull::new(&type_info as *const _ as *mut TypeInfo).unwrap();
 
         let header = ObjectHeader::new(type_ptr);
@@ -157,7 +157,7 @@ mod tests {
 
     #[test]
     fn type_info_simple_no_drop() {
-        let info = TypeInfo::simple(64, 8);
+        let info = TypeInfo::simple(64, 8, 1);
         assert_eq!(info.size, 64);
         assert_eq!(info.align, 8);
         assert!(info.drop.is_none());
@@ -167,7 +167,7 @@ mod tests {
     fn type_info_with_destructor() {
         unsafe fn test_drop(_: *mut u8) {}
 
-        let info = TypeInfo::with_drop(64, 8, test_drop);
+        let info = TypeInfo::with_drop(64, 8, 1, test_drop);
         assert_eq!(info.size, 64);
         assert_eq!(info.align, 8);
         assert!(info.drop.is_some());
@@ -263,7 +263,7 @@ mod tests {
     fn alloc_object_with_header() {
         let mut allocator = Allocator::new();
 
-        let type_info = TypeInfo::simple(64, 8);
+        let type_info = TypeInfo::simple(64, 8, 1);
         let type_ptr = NonNull::new(&type_info as *const _ as *mut TypeInfo).unwrap();
 
         let obj_ptr: NonNull<u64> = allocator.alloc_object(type_ptr)
@@ -280,7 +280,7 @@ mod tests {
     fn alloc_multiple_objects() {
         let mut allocator = Allocator::new();
 
-        let type_info = TypeInfo::simple(32, 8);
+        let type_info = TypeInfo::simple(32, 8, 1);
         let type_ptr = NonNull::new(&type_info as *const _ as *mut TypeInfo).unwrap();
 
         let mut objects = Vec::new();

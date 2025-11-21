@@ -11,6 +11,7 @@ unsafe fn create_test_object() -> *mut ObjectHeader {
     static TYPE_INFO: TypeInfo = TypeInfo {
         size: 64,
         align: 8,
+        type_id: 1,
         drop: None,
     };
 

@@ -8,8 +8,7 @@
 
 use std::ptr::NonNull;
 use std::marker::PhantomData;
-use crate::allocator::{ObjectHeader, TypeInfo};
-use crate::gc::RefCount;
+use crate::allocator::ObjectHeader;
 
 /// Tagged pointer encoding for immediate values
 ///
@@ -99,7 +98,7 @@ impl PyObject {
     #[inline]
     pub fn as_int(self) -> i64 {
         debug_assert!(self.is_int());
-        ((self.bits as i64) >> 3)
+        (self.bits as i64) >> 3
     }
 
     /// Extract pointer to heap object (panics if not a pointer)
@@ -129,13 +128,137 @@ impl PyObject {
         }
     }
 
+    /// Check if object is truthy (Python truthiness)
+    pub fn is_truthy(self) -> bool {
+        if self.is_int() {
+            self.as_int() != 0
+        } else if self.is_special() {
+            match self.get_type() {
+                ObjectType::None => false,
+                ObjectType::Bool => (self.bits >> SPECIAL_TYPE_SHIFT) & 0b111111 == SPECIAL_TRUE,
+                _ => true,
+            }
+        } else {
+            match self.get_type() {
+                ObjectType::Float => unsafe {
+                    let heap_obj = self.as_ptr().as_ref();
+                    heap_obj.data().float.value != 0.0
+                },
+                ObjectType::String => crate::builtins::py_string_len(self) > 0,
+                ObjectType::List => crate::builtins::py_list_len(self) > 0,
+                ObjectType::Dict => crate::builtins::py_dict_len(self) > 0,
+                ObjectType::Tuple => crate::builtins::py_tuple_len(self) > 0,
+                _ => true,
+            }
+        }
+    }
+
+    /// Convert to string representation
+    pub fn to_string(self) -> String {
+        if self.is_int() {
+            self.as_int().to_string()
+        } else if self.is_special() {
+            match self.get_type() {
+                ObjectType::None => "None".to_string(),
+                ObjectType::Bool => {
+                    if (self.bits >> SPECIAL_TYPE_SHIFT) & 0b111111 == SPECIAL_TRUE {
+                        "True".to_string()
+                    } else {
+                        "False".to_string()
+                    }
+                }
+                _ => "Unknown".to_string(),
+            }
+        } else {
+            match self.get_type() {
+                ObjectType::Float => {
+                    let val = crate::builtins::py_float_as_f64(self);
+                    val.to_string()
+                }
+                ObjectType::String => {
+                    crate::builtins::py_string_as_str(self).to_string()
+                }
+                ObjectType::List => {
+                    let len = crate::builtins::py_list_len(self);
+                    let mut s = String::from("[");
+                    for i in 0..len {
+                        if i > 0 {
+                            s.push_str(", ");
+                        }
+                        let item = crate::builtins::py_list_get(self, i as isize);
+                        s.push_str(&item.to_string());
+                    }
+                    s.push(']');
+                    s
+                }
+                ObjectType::Tuple => {
+                    let len = crate::builtins::py_tuple_len(self);
+                    let mut s = String::from("(");
+                    for i in 0..len {
+                        if i > 0 {
+                            s.push_str(", ");
+                        }
+                        let item = crate::builtins::py_tuple_get(self, i as isize);
+                        s.push_str(&item.to_string());
+                    }
+                    if len == 1 {
+                        s.push(',');
+                    }
+                    s.push(')');
+                    s
+                }
+                ObjectType::Dict => format!("<dict at {:p}>", self.as_ptr()),
+                _ => format!("<{:?} at {:p}>", self.get_type(), self.as_ptr()),
+            }
+        }
+    }
+
+    /// Hash object (for dict keys)
+    pub fn hash(self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        use std::collections::hash_map::DefaultHasher;
+
+        let mut hasher = DefaultHasher::new();
+
+        if self.is_int() {
+            self.as_int().hash(&mut hasher);
+        } else if self.is_special() {
+            self.get_type().hash(&mut hasher);
+        } else {
+            match self.get_type() {
+                ObjectType::Float => {
+                    let val = crate::builtins::py_float_as_f64(self);
+                    val.to_bits().hash(&mut hasher);
+                }
+                ObjectType::String => {
+                    crate::builtins::py_string_as_str(self).hash(&mut hasher);
+                }
+                ObjectType::Tuple => {
+                    // Hash each element
+                    let len = crate::builtins::py_tuple_len(self);
+                    len.hash(&mut hasher);
+                    for i in 0..len {
+                        let item = crate::builtins::py_tuple_get(self, i as isize);
+                        item.hash().hash(&mut hasher);
+                    }
+                }
+                _ => {
+                    // For unhashable types, use identity
+                    (self.as_ptr().as_ptr() as usize).hash(&mut hasher);
+                }
+            }
+        }
+
+        hasher.finish()
+    }
+
     /// Heap-allocate large integer
     fn from_bigint(val: i64) -> Self {
         // For extremely large integers, we would heap allocate
         // For now, truncate to fit in small int range since we rarely hit this
         // In full implementation, this would use arbitrary precision arithmetic
         let truncated = if val > 0 {
-            ((1i64 << 60) - 1)
+            (1i64 << 60) - 1
         } else {
             -(1i64 << 60)
         };
@@ -178,86 +301,103 @@ impl HeapObject {
 /// Object data union - different representations per type
 #[repr(C)]
 pub union ObjectData {
-    string: StringData,
-    list: ListData,
-    dict: DictData,
-    tuple: TupleData,
-    function: FunctionData,
-    class: ClassData,
-    instance: InstanceData,
+    pub float: FloatData,
+    pub string: StringData,
+    pub list: ListData,
+    pub dict: DictData,
+    pub tuple: TupleData,
+    pub function: FunctionData,
+    pub class: ClassData,
+    pub instance: InstanceData,
+}
+
+/// Float object data
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct FloatData {
+    pub value: f64,
 }
 
 /// String object data
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct StringData {
-    len: usize,
-    capacity: usize,
-    ptr: *mut u8,
+    pub len: usize,
+    pub capacity: usize,
+    pub ptr: *mut u8,
 }
 
 /// List object data
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct ListData {
-    len: usize,
-    capacity: usize,
-    ptr: *mut PyObject,
+    pub len: usize,
+    pub capacity: usize,
+    pub ptr: *mut PyObject,
 }
 
 /// Dict object data
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct DictData {
-    len: usize,
-    capacity: usize,
-    ptr: *mut DictEntry,
+    pub len: usize,
+    pub capacity: usize,
+    pub ptr: *mut DictEntry,
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct DictEntry {
-    hash: u64,
-    key: PyObject,
-    value: PyObject,
+    pub hash: u64,
+    pub key: PyObject,
+    pub value: PyObject,
 }
 
 /// Tuple object data (immutable)
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct TupleData {
-    len: usize,
-    elements: [PyObject; 0], // Flexible array member
+    pub len: usize,
+    pub elements: [PyObject; 0], // Flexible array member
 }
 
 /// Function object data
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct FunctionData {
-    code_ptr: *const u8,
-    closure: *mut ClosureData,
-    name: *const u8,
+    pub code_ptr: *const u8,
+    pub closure: *mut ClosureData,
+    pub name: *const u8,
 }
 
 /// Closure data (captured variables)
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct ClosureData {
-    len: usize,
-    captures: [PyObject; 0], // Flexible array member
+    pub len: usize,
+    pub captures: [PyObject; 0], // Flexible array member
 }
 
 /// Class object data
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct ClassData {
-    name: *const u8,
-    bases: *mut PyObject,
-    methods: *mut DictData,
-    attrs: *mut DictData,
+    pub name: *const u8,
+    pub bases: *mut PyObject,
+    pub methods: *mut DictData,
+    pub attrs: *mut DictData,
 }
 
 /// Instance object data
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct InstanceData {
-    class: PyObject,
-    attrs: *mut DictData,
+    pub class: PyObject,
+    pub attrs: *mut DictData,
 }
 
 /// Object types for dispatch
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum ObjectType {
     None = 0,
@@ -282,7 +422,7 @@ pub struct PyString {
 
 impl PyString {
     pub fn new(s: &str) -> Self {
-        let obj = crate::builtins::string::py_string_new(s);
+        let obj = crate::builtins::py_string_new(s);
         Self {
             obj,
             _phantom: PhantomData,
@@ -290,7 +430,7 @@ impl PyString {
     }
 
     pub fn as_str(&self) -> &str {
-        crate::builtins::string::py_string_as_str(self.obj)
+        crate::builtins::py_string_as_str(self.obj)
     }
 
     pub fn inner(&self) -> PyObject {
@@ -306,7 +446,7 @@ pub struct PyList {
 
 impl PyList {
     pub fn new() -> Self {
-        let obj = crate::builtins::list::py_list_new();
+        let obj = crate::builtins::py_list_new();
         Self {
             obj,
             _phantom: PhantomData,
@@ -314,7 +454,7 @@ impl PyList {
     }
 
     pub fn len(&self) -> usize {
-        crate::builtins::list::py_list_len(self.obj)
+        crate::builtins::py_list_len(self.obj)
     }
 
     pub fn inner(&self) -> PyObject {
@@ -330,7 +470,7 @@ pub struct PyDict {
 
 impl PyDict {
     pub fn new() -> Self {
-        let obj = crate::builtins::dict::py_dict_new();
+        let obj = crate::builtins::py_dict_new();
         Self {
             obj,
             _phantom: PhantomData,
@@ -338,7 +478,7 @@ impl PyDict {
     }
 
     pub fn len(&self) -> usize {
-        crate::builtins::dict::py_dict_len(self.obj)
+        crate::builtins::py_dict_len(self.obj)
     }
 
     pub fn inner(&self) -> PyObject {

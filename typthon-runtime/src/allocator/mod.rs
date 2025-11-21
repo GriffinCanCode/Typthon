@@ -20,7 +20,8 @@ pub use arena::{Arena, ArenaPool};
 
 use core::ptr::NonNull;
 use core::cell::RefCell;
-use crate::logging::{info, debug, trace, log_allocation};
+use crate::logging::{log_allocation};
+use tracing::{info, debug, trace};
 
 thread_local! {
     /// Thread-local allocator for zero-contention fast path
@@ -70,6 +71,8 @@ impl Allocator {
         // Fast path: try bump allocation
         if let Some(ptr) = self.bump.try_alloc(size, align) {
             log_allocation(size, ptr.as_ptr());
+            // Notify GC of allocation
+            crate::gc::maybe_collect();
             return Some(ptr);
         }
 
@@ -97,6 +100,8 @@ impl Allocator {
         let result = self.bump.try_alloc(size, align);
         if let Some(ptr) = result {
             log_allocation(size, ptr.as_ptr());
+            // Notify GC of allocation
+            crate::gc::maybe_collect();
             Some(ptr)
         } else {
             None

@@ -1,89 +1,125 @@
-//! Object lifecycle - allocation and destruction
+//! Object lifecycle - C API for object creation and destruction
 //!
-//! C API for object creation and cleanup, integrated with allocator.
+//! Provides safe wrappers for object allocation and deallocation with
+//! proper refcount initialization and cleanup.
 
-use crate::allocator::ObjectHeader;
-use core::ptr;
+use crate::objects::PyObject;
+use crate::allocator::{TypeInfo, ObjectHeader};
+use crate::logging::{trace, debug};
+use core::ptr::NonNull;
 
-/// Allocate new object with header (returns pointer to data, not header)
+/// Create new heap object with given type info
 ///
 /// # Safety
+/// - type_info must point to valid TypeInfo
 /// - Returns null on allocation failure
-/// - Returned pointer is 8-byte aligned
-/// - Caller must call `typthon_object_destroy` or manage refcount to zero
 #[no_mangle]
-pub extern "C" fn typthon_object_new(size: usize) -> *mut u8 {
-    if size == 0 || size > isize::MAX as usize {
-        return ptr::null_mut();
+pub extern "C" fn typthon_object_new(type_info: *const TypeInfo, size: usize) -> *mut u8 {
+    if type_info.is_null() {
+        return std::ptr::null_mut();
     }
 
-    // TODO: Integrate with allocator::Allocator
-    // For now, use system allocator as placeholder
-    unsafe {
-        let layout = std::alloc::Layout::from_size_align_unchecked(
-            size + core::mem::size_of::<ObjectHeader>(),
-            8,
-        );
+    trace!(event = "object_new", size_bytes = size);
 
-        let ptr = std::alloc::alloc(layout);
-        if ptr.is_null() {
-            return ptr::null_mut();
-        }
+    crate::allocator::with_thread_allocator(|alloc| {
+        let type_info_nn = unsafe { NonNull::new_unchecked(type_info as *mut TypeInfo) };
 
-        // Initialize header with default type info
-        let _header = ptr as *mut ObjectHeader;
-        // TODO: Use proper type info from allocator
-        // _header.write(ObjectHeader::new(type_info));
+        alloc.alloc(size + core::mem::size_of::<ObjectHeader>(), 8)
+            .map(|ptr| {
+                unsafe {
+                    // Initialize header
+                    let header_ptr = ptr.as_ptr() as *mut ObjectHeader;
+                    header_ptr.write(ObjectHeader::new(type_info_nn));
 
-        // Return pointer to data (after header)
-        ptr.add(core::mem::size_of::<ObjectHeader>())
-    }
+                    // Return pointer to data (after header)
+                    let data_ptr = header_ptr.add(1) as *mut u8;
+                    debug!(address = ?data_ptr, "Object allocated");
+                    data_ptr
+                }
+            })
+            .unwrap_or(std::ptr::null_mut())
+    })
 }
 
-/// Destroy object and free memory (does not check refcount)
+/// Destroy object (called by refcount when it hits zero)
 ///
 /// # Safety
-/// - Object must have been allocated with `typthon_object_new`
-/// - Refcount must be zero (caller's responsibility)
-/// - Pointer becomes invalid after this call
+/// - obj must be valid heap object
+/// - Should only be called by refcount system
 #[no_mangle]
 pub extern "C" fn typthon_object_destroy(obj: *mut u8) {
     if obj.is_null() {
         return;
     }
 
+    trace!(event = "object_destroy", address = ?obj);
+
     unsafe {
-        let header_ptr = ObjectHeader::from_object(obj);
-        let header = &*header_ptr;
+        let header = &*ObjectHeader::from_object(obj);
 
         // Call type-specific destructor if present
         if let Some(drop_fn) = header.type_info.as_ref().drop {
+            debug!(address = ?obj, "Calling destructor");
             drop_fn(obj);
         }
-
-        // Free memory
-        let layout = std::alloc::Layout::from_size_align_unchecked(
-            header.type_info.as_ref().size + core::mem::size_of::<ObjectHeader>(),
-            8,
-        );
-        std::alloc::dealloc(header_ptr as *mut u8, layout);
     }
 }
 
-/// Get object size (excluding header)
-///
-/// # Safety
-/// - Returns 0 for null pointers
-/// - Object must be valid
+/// Get object type ID
 #[no_mangle]
-pub extern "C" fn typthon_object_size(obj: *const u8) -> usize {
-    if obj.is_null() {
-        return 0;
-    }
+pub extern "C" fn typthon_object_type(obj: PyObject) -> u8 {
+    obj.get_type() as u8
+}
 
-    unsafe {
-        let header = &*ObjectHeader::from_object(obj as *mut u8);
-        header.type_info.as_ref().size
+/// Check if object is truthy
+#[no_mangle]
+pub extern "C" fn typthon_object_is_truthy(obj: PyObject) -> bool {
+    obj.is_truthy()
+}
+
+/// Get string representation of object
+#[no_mangle]
+pub extern "C" fn typthon_object_to_string(obj: PyObject) -> PyObject {
+    let s = obj.to_string();
+    crate::builtins::py_string_new(&s)
+}
+
+/// Hash object
+#[no_mangle]
+pub extern "C" fn typthon_object_hash(obj: PyObject) -> u64 {
+    obj.hash()
+}
+
+/// Create PyObject from C int
+#[no_mangle]
+pub extern "C" fn typthon_int_from_i64(value: i64) -> PyObject {
+    PyObject::from_int(value)
+}
+
+/// Extract int value from PyObject
+#[no_mangle]
+pub extern "C" fn typthon_int_to_i64(obj: PyObject) -> i64 {
+    if obj.is_int() {
+        obj.as_int()
+    } else {
+        panic!("Expected int object");
     }
 }
 
+/// Create PyObject from C bool
+#[no_mangle]
+pub extern "C" fn typthon_bool_from_bool(value: bool) -> PyObject {
+    PyObject::from_bool(value)
+}
+
+/// Get None singleton
+#[no_mangle]
+pub extern "C" fn typthon_none() -> PyObject {
+    PyObject::none()
+}
+
+/// Check if object is None
+#[no_mangle]
+pub extern "C" fn typthon_is_none(obj: PyObject) -> bool {
+    obj.get_type() == crate::objects::ObjectType::None
+}

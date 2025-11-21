@@ -68,7 +68,7 @@ impl CycleCollector {
             return;
         }
 
-        log_gc_start();
+        log_gc_start(0); // candidate_count tracked separately
         debug!(candidates = candidate_count, "Starting cycle collection");
 
         self.collections_run.fetch_add(1, Ordering::Relaxed);
@@ -95,7 +95,7 @@ impl CycleCollector {
         self.sweep();
 
         let collected = self.cycles_collected.load(Ordering::Relaxed);
-        log_gc_sweep(collected, 0); // bytes_reclaimed tracked separately
+        log_gc_sweep(collected); // bytes_reclaimed tracked separately
 
         debug!(
             event = "gc_cycle_complete",
@@ -229,7 +229,7 @@ impl CycleCollector {
         let type_info = (*obj).type_info.as_ref();
         let obj_ptr = (obj as *mut u8).add(core::mem::size_of::<ObjectHeader>());
 
-        use crate::objects::{ObjectType, ListData, DictData, DictEntry, PyObject};
+        use crate::objects::{ObjectType, ListData, DictData};
 
         match type_info.object_type() {
             ObjectType::List => {

@@ -13,7 +13,7 @@ use tracing_subscriber::{
     fmt::{self, format::FmtSpan},
     layer::SubscriberExt,
     util::SubscriberInitExt,
-    EnvFilter, Layer,
+    EnvFilter,
 };
 
 mod macros;
@@ -136,64 +136,19 @@ pub fn init_with_config(config: LogConfig) {
             FmtSpan::NONE
         };
 
-        let registry = tracing_subscriber::registry().with(env_filter);
-
-        if config.file_output {
-            if let Some(log_path) = &config.log_path {
-                let file_appender = tracing_appender::rolling::daily(".", log_path);
-                let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-
-                let file_layer = fmt::layer()
-                    .with_writer(non_blocking)
+        // Simplified: just console logging with env filter
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(
+                fmt::layer()
+                    .with_writer(io::stdout)
                     .with_span_events(span_events)
                     .with_target(true)
-                    .with_thread_ids(true)
-                    .with_line_number(true);
-
-                let console_layer = fmt::layer()
-                    .with_writer(io::stdout)
-                    .with_span_events(span_events);
-
-                if config.json_format {
-                    registry
-                        .with(file_layer.json())
-                        .with(console_layer)
-                        .init();
-                } else {
-                    registry
-                        .with(file_layer)
-                        .with(console_layer)
-                        .init();
-                }
-            } else {
-                // Fallback to console only
-                init_console_only(span_events, config.json_format, registry);
-            }
-        } else {
-            init_console_only(span_events, config.json_format, registry);
-        }
+                    .with_thread_ids(cfg!(debug_assertions))
+                    .with_line_number(cfg!(debug_assertions))
+            )
+            .init();
     });
-}
-
-fn init_console_only<S>(
-    span_events: FmtSpan,
-    json_format: bool,
-    registry: S,
-) where
-    S: SubscriberExt + for<'a> tracing_subscriber::registry::LookupSpan<'a> + Send + Sync,
-{
-    let console_layer = fmt::layer()
-        .with_writer(io::stdout)
-        .with_span_events(span_events)
-        .with_target(true)
-        .with_thread_ids(cfg!(debug_assertions))
-        .with_line_number(cfg!(debug_assertions));
-
-    if json_format {
-        registry.with(console_layer.json()).init();
-    } else {
-        registry.with(console_layer).init();
-    }
 }
 
 /// Check if logging is initialized
@@ -212,11 +167,11 @@ pub fn init_runtime_logging() {
 
 /// Log memory allocation
 #[inline]
-pub fn log_allocation(size: usize, align: usize, ptr: *const u8) {
+pub fn log_allocation(size: usize, ptr: *const u8) {
+    use tracing::trace;
     trace!(
         event = "allocation",
         size_bytes = size,
-        alignment = align,
         address = ?ptr,
         "Memory allocated"
     );
@@ -225,6 +180,7 @@ pub fn log_allocation(size: usize, align: usize, ptr: *const u8) {
 /// Log memory deallocation
 #[inline]
 pub fn log_deallocation(ptr: *const u8) {
+    use tracing::trace;
     trace!(
         event = "deallocation",
         address = ?ptr,
@@ -234,6 +190,7 @@ pub fn log_deallocation(ptr: *const u8) {
 
 /// Log GC cycle start
 pub fn log_gc_start(candidate_count: usize) {
+    use tracing::info;
     info!(
         event = "gc_start",
         candidates = candidate_count,
@@ -242,17 +199,20 @@ pub fn log_gc_start(candidate_count: usize) {
 }
 
 /// Log GC cycle completion
-pub fn log_gc_complete(collected: usize, duration_ms: u64) {
+pub fn log_gc_complete(duration_us: u64, collected: usize, total: usize) {
+    use tracing::info;
     info!(
         event = "gc_complete",
         objects_collected = collected,
-        duration_ms = duration_ms,
+        total_objects = total,
+        duration_us = duration_us,
         "Garbage collection cycle complete"
     );
 }
 
 /// Log GC mark phase
 pub fn log_gc_mark(marked: usize) {
+    use tracing::debug;
     debug!(
         event = "gc_mark",
         objects_marked = marked,
@@ -262,6 +222,7 @@ pub fn log_gc_mark(marked: usize) {
 
 /// Log GC sweep phase
 pub fn log_gc_sweep(swept: usize) {
+    use tracing::debug;
     debug!(
         event = "gc_sweep",
         objects_swept = swept,
@@ -271,6 +232,7 @@ pub fn log_gc_sweep(swept: usize) {
 
 /// Log FFI function call
 pub fn log_ffi_call(fn_name: &str, arg_count: usize) {
+    use tracing::debug;
     debug!(
         event = "ffi_call",
         function = fn_name,
@@ -281,6 +243,7 @@ pub fn log_ffi_call(fn_name: &str, arg_count: usize) {
 
 /// Log FFI function return
 pub fn log_ffi_return(fn_name: &str) {
+    use tracing::trace;
     trace!(
         event = "ffi_return",
         function = fn_name,
@@ -290,6 +253,7 @@ pub fn log_ffi_return(fn_name: &str) {
 
 /// Log FFI error
 pub fn log_ffi_error(fn_name: &str, error: &str) {
+    use tracing::error;
     error!(
         event = "ffi_error",
         function = fn_name,
@@ -300,6 +264,7 @@ pub fn log_ffi_error(fn_name: &str, error: &str) {
 
 /// Log builtin function call
 pub fn log_builtin_call(builtin: &str) {
+    use tracing::trace;
     trace!(
         event = "builtin_call",
         function = builtin,
@@ -309,6 +274,7 @@ pub fn log_builtin_call(builtin: &str) {
 
 /// Log type conversion
 pub fn log_type_conversion(from_type: &str, to_type: &str) {
+    use tracing::trace;
     trace!(
         event = "type_conversion",
         from = from_type,
@@ -319,6 +285,7 @@ pub fn log_type_conversion(from_type: &str, to_type: &str) {
 
 /// Log runtime error
 pub fn log_runtime_error(error: &str) {
+    use tracing::error;
     error!(
         event = "runtime_error",
         error = error,
@@ -328,6 +295,7 @@ pub fn log_runtime_error(error: &str) {
 
 /// Log runtime warning
 pub fn log_runtime_warning(warning: &str) {
+    use tracing::warn;
     warn!(
         event = "runtime_warning",
         warning = warning,
@@ -337,6 +305,7 @@ pub fn log_runtime_warning(warning: &str) {
 
 /// Log runtime initialization
 pub fn log_runtime_init() {
+    use tracing::info;
     info!(
         event = "runtime_init",
         "Typthon runtime initializing"
@@ -345,6 +314,7 @@ pub fn log_runtime_init() {
 
 /// Log runtime shutdown
 pub fn log_runtime_shutdown() {
+    use tracing::info;
     info!(
         event = "runtime_shutdown",
         "Typthon runtime shutting down"
@@ -354,24 +324,20 @@ pub fn log_runtime_shutdown() {
 /// Performance tracking utilities
 pub mod perf {
     use std::time::Instant;
-    use tracing::{debug, span, Level};
+    use tracing::debug;
 
     /// Track operation duration (returns guard that logs on drop)
     #[must_use]
     pub fn track(operation: &str) -> PerformanceGuard {
-        let span = span!(Level::DEBUG, "perf", op = operation);
-        let _entered = span.enter();
         PerformanceGuard {
             operation: operation.to_string(),
             start: Instant::now(),
-            _span: span,
         }
     }
 
     pub struct PerformanceGuard {
         operation: String,
         start: Instant,
-        _span: tracing::Span,
     }
 
     impl Drop for PerformanceGuard {
