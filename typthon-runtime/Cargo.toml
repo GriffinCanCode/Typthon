@@ -9,8 +9,17 @@ name = "typthon_runtime"
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
-# Zero dependencies - everything built from scratch
-# Minimal, fast, statically linkable
+# Lock-free concurrency primitives
+dashmap = "6.0"           # Lock-free concurrent HashMap/HashSet
+parking_lot = "0.12"      # Faster, smaller mutexes than std
+once_cell = "1.19"        # Lazy static initialization
+
+# Platform-specific OS APIs
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["memoryapi", "winnt"] }
 
 [dev-dependencies]
 criterion = "0.5"
