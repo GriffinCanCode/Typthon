@@ -13,7 +13,7 @@ use crate::compiler::frontend::parse_module;
 use crate::infrastructure::incremental::{IncrementalEngine, ModuleId};
 use crate::infrastructure::cache::{ResultCache, CacheKey, CacheEntry, CachedError};
 use crate::infrastructure::concurrency::{
-    ActorSystem, QueryCoordinator, BatchFileReader, CompilerPipeline, CompilerStage,
+    QueryCoordinator, BatchFileReader, CompilerPipeline, QueryModuleId,
 };
 use dashmap::DashMap;
 use rayon::prelude::*;
@@ -95,18 +95,18 @@ impl ParallelAnalyzer {
         // Update query database with new sources
         for task in &modules {
             self.query_coordinator.update_source(
-                crate::infrastructure::concurrency::QueryModuleId::new(task.id.0),
+                QueryModuleId::new(task.id.as_u64()),
                 Arc::new(task.content.clone())
             );
             self.query_coordinator.set_path(
-                crate::infrastructure::concurrency::QueryModuleId::new(task.id.0),
+                QueryModuleId::new(task.id.as_u64()),
                 task.path.clone()
             );
         }
 
         // Use query system for parallel incremental checking
         let query_modules: Vec<_> = modules.iter()
-            .map(|t| crate::infrastructure::concurrency::QueryModuleId::new(t.id.0))
+            .map(|t| QueryModuleId::new(t.id.as_u64()))
             .collect();
 
         let query_results = self.query_coordinator.check_parallel(query_modules).await;
@@ -114,7 +114,7 @@ impl ParallelAnalyzer {
         // Convert query results to analysis results
         query_results.into_iter().map(|(qid, errors)| {
             AnalysisResult {
-                id: ModuleId::new(qid.0),
+                id: ModuleId::new(qid.as_u64()),
                 errors: (*errors).clone(),
                 duration_ms: 0,
             }
@@ -264,7 +264,7 @@ impl ParallelAnalyzer {
         let tasks: Vec<_> = files.into_iter()
             .map(|(path, content)| AnalysisTask {
                 id: ModuleId::from_path(&path),
-                path,
+                path: path.to_path_buf(),
                 content: (*content).clone(),
             })
             .collect();

@@ -19,6 +19,12 @@ impl SourceLocation {
     }
 }
 
+impl Default for SourceLocation {
+    fn default() -> Self {
+        Self::new(0, 0, 0, 0)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ErrorKind {
     TypeMismatch { expected: String, found: String },
@@ -82,7 +88,7 @@ impl fmt::Display for ErrorKind {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeError {
     pub kind: ErrorKind,
     pub location: SourceLocation,

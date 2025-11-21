@@ -17,6 +17,10 @@ use serde::{Deserialize, Serialize};
 pub struct ModuleId(u64);
 
 impl ModuleId {
+    pub fn new(id: u64) -> Self {
+        Self(id)
+    }
+
     pub fn from_path(path: &Path) -> Self {
         let mut hasher = Hasher::new();
         hasher.update(path.to_string_lossy().as_bytes());
@@ -30,11 +34,6 @@ impl ModuleId {
 
     pub fn as_str(&self) -> String {
         format!("{:016x}", self.0)
-    }
-
-    #[cfg(test)]
-    pub fn new(id: u64) -> Self {
-        Self(id)
     }
 }
 

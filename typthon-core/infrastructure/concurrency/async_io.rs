@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::io;
 use tokio::fs;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use dashmap::DashMap;
 use std::sync::Arc;
 
@@ -162,7 +162,7 @@ impl FileWatcher {
             let metadata = fs::metadata(path).await?;
             if let Ok(modified) = metadata.modified() {
                 let elapsed = modified.duration_since(std::time::UNIX_EPOCH).ok()
-                    .and_then(|d| {
+                    .and_then(|_d| {
                         let watched_unix = std::time::UNIX_EPOCH + watched.elapsed();
                         modified.duration_since(watched_unix).ok()
                     });

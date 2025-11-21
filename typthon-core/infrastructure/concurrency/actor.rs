@@ -56,9 +56,9 @@ impl<A: Actor> Clone for ActorAddr<A> {
 
 impl<A: Actor> ActorAddr<A> {
     /// Send message and wait for response
-    pub async fn send(&self, msg: A::Message) -> Result<A::Response, ActorError>
+    pub async fn send(&self, msg: A::Message) -> Result<<A::Message as Message>::Response, ActorError>
     where
-        A::Message: Message<Response = A::Response>,
+        A::Message: Message,
     {
         let (tx, rx) = bounded(1);
         let envelope = ActorEnvelope {
@@ -76,7 +76,7 @@ impl<A: Actor> ActorAddr<A> {
     /// Send message without waiting for response (fire and forget)
     pub fn try_send(&self, msg: A::Message) -> Result<(), ActorError>
     where
-        A::Message: Message<Response = A::Response>,
+        A::Message: Message,
     {
         let (tx, _rx) = bounded(1);
         let envelope = ActorEnvelope {
@@ -96,7 +96,7 @@ impl<A: Actor> ActorAddr<A> {
 /// Internal envelope for messages with response channels
 struct ActorEnvelope<A: Actor> {
     message: A::Message,
-    response: Sender<A::Response>,
+    response: Sender<<A::Message as Message>::Response>,
 }
 
 /// Actor context managing lifecycle and mailbox

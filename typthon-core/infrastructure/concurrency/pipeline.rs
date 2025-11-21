@@ -107,7 +107,7 @@ impl<I: Send + 'static> AsyncPipeline<I> {
     {
         self.stages.push(Box::new(stage));
 
-        let (tx, rx) = tokio::sync::mpsc::channel(100);
+        let (_tx, rx) = tokio::sync::mpsc::channel(100);
 
         AsyncPipeline {
             input: rx,
@@ -200,7 +200,7 @@ impl<I: Send + 'static, O: Send + 'static> BufferedPipeline<I, O> {
     }
 
     /// Run pipeline with work function
-    pub fn run<F>(self, mut work: F)
+    pub fn run<F>(self, work: F)
     where
         F: FnMut(I) -> O + Send + Clone + 'static,
     {
