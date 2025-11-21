@@ -1,173 +1,22 @@
-//! Typthon - A high-performance gradual type system for Python
+//! Typthon - High-performance gradual type system for Python
 //!
-//! This is the main library entry point that wraps the typthon-core module.
+//! Main library entry point that exposes the typhon Python package.
 
-// Include the core module from the typthon-core directory
+// Internal module structure (for organization)
+pub mod internal {
+    pub mod core;
+    pub mod compiler;
+    pub mod runtime;
+}
+
+// Include typthon-core as the main implementation
 #[path = "../typthon-core/lib.rs"]
 mod typthon_core;
 
 // Re-export everything from typthon-core
 pub use typthon_core::*;
 
-// Python bindings (when enabled)
-#[cfg(feature = "python")]
-use pyo3::prelude::*;
+// Include typhon Python package API (directory is called typhton)
+#[path = "typhton/lib.rs"]
+pub mod typhon;
 
-#[cfg(feature = "python")]
-#[pyfunction]
-fn check_file(path: String) -> PyResult<Vec<String>> {
-    let source = std::fs::read_to_string(&path)
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))?;
-
-    let ast = parse_module(&source)
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PySyntaxError, _>(e.to_string()))?;
-
-    let mut checker = TypeChecker::new();
-    let errors = checker.check(&ast);
-
-    Ok(errors.iter().map(|e| e.to_string()).collect())
-}
-
-#[cfg(feature = "python")]
-#[pyfunction]
-fn infer_types(source: String) -> PyResult<String> {
-    let ast = parse_module(&source)
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PySyntaxError, _>(e.to_string()))?;
-
-    let mut checker = TypeChecker::new();
-    let result = checker.infer(&ast);
-
-    Ok(format!("{:?}", result))
-}
-
-#[cfg(feature = "python")]
-#[pyfunction]
-fn check_effects(source: String) -> PyResult<std::collections::HashMap<String, Vec<String>>> {
-    let ast = parse_module(&source)
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PySyntaxError, _>(e.to_string()))?;
-
-    let ctx = std::sync::Arc::new(TypeContext::new());
-    let mut analyzer = typthon_core::compiler::analysis::EffectAnalyzer::new(ctx);
-    let effects = analyzer.analyze_module(&ast);
-
-    Ok(effects.iter().map(|(k, effect_set)| {
-        let effect_strings: Vec<String> = if effect_set.is_pure() {
-            vec!["pure".to_string()]
-        } else {
-            let effects_str = format!("{:?}", effect_set);
-            vec![effects_str]
-        };
-        (k.clone(), effect_strings)
-    }).collect())
-}
-
-#[cfg(feature = "python")]
-#[pyfunction]
-fn get_function_type_with_effects(source: String, func_name: String) -> PyResult<String> {
-    let ast = parse_module(&source)
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PySyntaxError, _>(e.to_string()))?;
-
-    let mut checker = TypeChecker::new();
-    checker.check(&ast);
-
-    if let Some(ty) = checker.get_type(&func_name) {
-        Ok(format!("{}", ty))
-    } else {
-        Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-            format!("Function '{}' not found", func_name)
-        ))
-    }
-}
-
-#[cfg(feature = "python")]
-#[pyfunction]
-fn validate_refinement(value: String, predicate: String) -> PyResult<bool> {
-    let analyzer = typthon_core::compiler::analysis::RefinementAnalyzer::new();
-
-    let json_val: serde_json::Value = serde_json::from_str(&value)
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
-
-    let pred = analyzer.parse_predicate(&predicate)
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e))?;
-
-    Ok(analyzer.validate(&json_val, &pred))
-}
-
-#[cfg(feature = "python")]
-#[pyfunction]
-fn check_recursive_type(_type_def: String) -> PyResult<bool> {
-    Ok(true)
-}
-
-#[cfg(feature = "python")]
-#[pyclass]
-struct TypeValidator {
-    checker: TypeChecker,
-}
-
-#[cfg(feature = "python")]
-#[pymethods]
-impl TypeValidator {
-    #[new]
-    fn new() -> Self {
-        Self {
-            checker: TypeChecker::new(),
-        }
-    }
-
-    fn validate(&mut self, source: String) -> PyResult<bool> {
-        let ast = parse_module(&source)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PySyntaxError, _>(e.to_string()))?;
-
-        let errors = self.checker.check(&ast);
-        Ok(errors.is_empty())
-    }
-
-    fn get_type(&mut self, expr: String) -> PyResult<String> {
-        let ast = parse_module(&expr)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PySyntaxError, _>(e.to_string()))?;
-
-        let ty = self.checker.infer(&ast);
-        Ok(format!("{:?}", ty))
-    }
-
-    fn get_function_effects(&self, name: String) -> PyResult<Vec<String>> {
-        if let Some(effects) = self.checker.get_function_effects(&name) {
-            if effects.is_pure() {
-                Ok(vec!["pure".to_string()])
-            } else {
-                let effects_str = format!("{:?}", effects);
-                Ok(vec![effects_str])
-            }
-        } else {
-            Ok(vec!["pure".to_string()])
-        }
-    }
-
-    fn get_function_type(&self, name: String) -> PyResult<String> {
-        if let Some(ty) = self.checker.get_type(&name) {
-            Ok(format!("{}", ty))
-        } else {
-            Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-                format!("Function '{}' not found", name)
-            ))
-        }
-    }
-
-    fn validate_refinement_value(&self, _value: String, _type_str: String) -> PyResult<bool> {
-        Ok(true)
-    }
-}
-
-#[cfg(feature = "python")]
-#[pymodule]
-fn _core(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(check_file, m)?)?;
-    m.add_function(wrap_pyfunction!(infer_types, m)?)?;
-    m.add_function(wrap_pyfunction!(check_effects, m)?)?;
-    m.add_function(wrap_pyfunction!(get_function_type_with_effects, m)?)?;
-    m.add_function(wrap_pyfunction!(validate_refinement, m)?)?;
-    m.add_function(wrap_pyfunction!(check_recursive_type, m)?)?;
-    m.add_class::<TypeValidator>()?;
-    Ok(())
-}
