@@ -1,0 +1,90 @@
+# Typthon Configuration File
+# Place this file as .typyrc or .typyrc.toml in your project root
+
+[check]
+# Enable type checking
+enabled = true
+
+# Strict mode: no untyped definitions allowed
+strict = false
+
+# Allow untyped function definitions
+allow_untyped_defs = false
+
+# Allow 'Any' type without warning
+allow_any = false
+
+# Check variance in generic types
+check_variance = true
+
+# Check generic type constraints
+check_generics = true
+
+# Warn about redundant type casts
+warn_redundant_casts = false
+
+# Warn about unused type ignore comments
+warn_unused_ignores = false
+
+[infer]
+# Enable type inference
+enabled = true
+
+# Aggressive inference (experimental)
+aggressive = false
+
+# Use existing type annotations as hints
+use_annotations = true
+
+# Maximum inference iterations (None = unlimited)
+# max_iterations = 100
+
+[errors]
+# Maximum number of errors to report
+max_errors = 100
+
+# Show helpful suggestions with errors
+show_suggestions = true
+
+# Show error codes
+show_error_codes = true
+
+# Enable colored output
+color = true
+
+# Error format: "default", "json", "compact", "verbose"
+format = "default"
+
+[paths]
+# Glob patterns for files to include
+include = ["**/*.py"]
+
+# Glob patterns for files to exclude
+exclude = [
+    "**/node_modules/**",
+    "**/__pycache__/**",
+    "**/venv/**",
+    "**/.venv/**",
+    "**/build/**",
+    "**/dist/**",
+]
+
+# Follow imports to check imported modules
+follow_imports = true
+
+# Additional Python path entries
+python_path = []
+
+# Plugins to load (experimental)
+plugins = []
+
+# Per-directory or per-file overrides
+[overrides."tests/**"]
+# More lenient checking for tests
+allow_untyped_defs = true
+allow_any = true
+
+[overrides."examples/**"]
+# Even more lenient for examples
+strict = false
+
