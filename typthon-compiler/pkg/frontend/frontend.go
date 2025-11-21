@@ -66,6 +66,14 @@ type Num struct {
 func (Num) node() {}
 func (Num) expr() {}
 
+type Call struct {
+	Func string
+	Args []Expr
+}
+
+func (Call) node() {}
+func (Call) expr() {}
+
 // Supporting types
 type Param struct {
 	Name string
@@ -84,19 +92,3 @@ const (
 	Mul
 	Div
 )
-
-// Parser - simple recursive descent for Phase 1
-type Parser struct {
-	source string
-	pos    int
-}
-
-func NewParser(source string) *Parser {
-	return &Parser{source: source}
-}
-
-func (p *Parser) Parse() (*Module, error) {
-	// TODO: Implement minimal parser for Phase 1
-	// Just enough to parse: def add(a: int, b: int) -> int: return a + b
-	return &Module{}, nil
-}

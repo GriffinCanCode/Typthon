@@ -1,4 +1,4 @@
-module github.com/griffinstrier/typthon-compiler
+module github.com/GriffinCanCode/typthon-compiler
 
 go 1.22
 

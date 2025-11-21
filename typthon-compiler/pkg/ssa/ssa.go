@@ -1,18 +1,70 @@
 // Package ssa implements Static Single Assignment form construction.
 //
 // Design: Minimal SSA - phi nodes at block joins, dominance-based.
-// Following the classic algorithm from Cytron et al.
+// For Phase 1: simplified since we only have straight-line code
 package ssa
 
-import "github.com/griffinstrier/typthon-compiler/pkg/ir"
+import (
+	"github.com/GriffinCanCode/typthon-compiler/pkg/ir"
+	"github.com/GriffinCanCode/typthon-compiler/pkg/logger"
+)
 
 // Convert converts IR to SSA form
+// Phase 1: IR is already in SSA form (single block, no phi nodes needed)
+// Future: Full SSA with dominance frontiers for control flow
 func Convert(prog *ir.Program) *Program {
-	// TODO: Implement SSA conversion
-	// 1. Insert phi nodes at dominance frontiers
-	// 2. Rename variables to ensure single assignment
-	// 3. Build def-use chains
-	return &Program{}
+	ssaProg := &Program{}
+
+	for _, irFn := range prog.Functions {
+		ssaFn := &Function{
+			Name: irFn.Name,
+		}
+
+		// Convert each block
+		for _, irBlock := range irFn.Blocks {
+			ssaBlock := &Block{
+				Label: irBlock.Label,
+				Insts: irBlock.Insts,
+				Term:  irBlock.Term,
+			}
+			ssaFn.Blocks = append(ssaFn.Blocks, ssaBlock)
+		}
+
+		// Build CFG edges
+		buildCFG(ssaFn)
+
+		ssaProg.Functions = append(ssaProg.Functions, ssaFn)
+	}
+
+	return ssaProg
+}
+
+// buildCFG constructs control flow graph edges
+func buildCFG(fn *Function) {
+	blockMap := make(map[string]*Block)
+	for _, block := range fn.Blocks {
+		blockMap[block.Label] = block
+	}
+
+	// Connect blocks based on terminators
+	for _, block := range fn.Blocks {
+		switch term := block.Term.(type) {
+		case *ir.Branch:
+			if target, ok := blockMap[term.Target]; ok {
+				block.Succs = append(block.Succs, target)
+				target.Preds = append(target.Preds, block)
+			}
+		case *ir.CondBranch:
+			if trueBlock, ok := blockMap[term.TrueBlock]; ok {
+				block.Succs = append(block.Succs, trueBlock)
+				trueBlock.Preds = append(trueBlock.Preds, block)
+			}
+			if falseBlock, ok := blockMap[term.FalseBlock]; ok {
+				block.Succs = append(block.Succs, falseBlock)
+				falseBlock.Preds = append(falseBlock.Preds, block)
+			}
+		}
+	}
 }
 
 // Program in SSA form
@@ -45,14 +97,39 @@ type PhiValue struct {
 	Block *Block
 }
 
-// Dominators computes the dominator tree
+// Dominators computes the dominator tree using simple algorithm
+// For Phase 1: entry block dominates everything (single block)
 func (f *Function) Dominators() map[*Block]*Block {
-	// TODO: Implement Lengauer-Tarjan algorithm
-	return nil
+	doms := make(map[*Block]*Block)
+	if len(f.Blocks) == 0 {
+		return doms
+	}
+
+	// Entry block dominates itself
+	entry := f.Blocks[0]
+	doms[entry] = entry
+
+	// All other blocks dominated by entry
+	for i := 1; i < len(f.Blocks); i++ {
+		doms[f.Blocks[i]] = entry
+	}
+
+	return doms
 }
 
 // DominanceFrontiers computes dominance frontiers
+// For Phase 1: no control flow, so frontiers are empty
 func (f *Function) DominanceFrontiers() map[*Block][]*Block {
-	// TODO: Implement dominance frontier computation
-	return nil
+	frontiers := make(map[*Block][]*Block)
+
+	for _, block := range f.Blocks {
+		if len(block.Preds) >= 2 {
+			// Join point - compute frontier
+			for _, pred := range block.Preds {
+				frontiers[pred] = append(frontiers[pred], block)
+			}
+		}
+	}
+
+	return frontiers
 }
