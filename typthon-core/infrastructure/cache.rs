@@ -34,7 +34,7 @@ impl CacheKey {
     }
 }
 
-/// Cache entry containing analysis results (note: serialization disabled due to Type complexity)
+/// Cache entry containing analysis results
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheEntry {
     /// Module ID
@@ -121,11 +121,11 @@ impl DiskCache {
         file.read_to_end(&mut compressed)?;
 
         // Decompress
-        let _decompressed = zstd::decode_all(&compressed[..])?;
+        let decompressed = zstd::decode_all(&compressed[..])?;
 
-        // Deserialize (disabled - Type serialization not supported)
-        // TODO: Implement custom serialization for Type
-        Err(io::Error::new(io::ErrorKind::Unsupported, "Type serialization not implemented"))
+        // Deserialize
+        bincode::deserialize(&decompressed)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
     }
 
     /// Write entry to disk
@@ -399,13 +399,13 @@ mod tests {
         let cache = ResultCache::new(temp.path().to_path_buf(), 100).unwrap();
 
         let key = CacheKey {
-            module: ModuleId(1),
-            hash: ContentHash([0u8; 32]),
+            module: ModuleId::new(1),
+            hash: ContentHash::new([0u8; 32]),
         };
 
         let entry = CacheEntry {
-            module: ModuleId(1),
-            hash: ContentHash([0u8; 32]),
+            module: ModuleId::new(1),
+            hash: ContentHash::new([0u8; 32]),
             types: vec![("x".to_string(), Type::Int)],
             errors: vec![],
             timestamp: 0,
@@ -424,13 +424,13 @@ mod tests {
         let mut policy = LruPolicy::new(1000);
 
         let key1 = CacheKey {
-            module: ModuleId(1),
-            hash: ContentHash([0u8; 32]),
+            module: ModuleId::new(1),
+            hash: ContentHash::new([0u8; 32]),
         };
 
         let key2 = CacheKey {
-            module: ModuleId(2),
-            hash: ContentHash([1u8; 32]),
+            module: ModuleId::new(2),
+            hash: ContentHash::new([1u8; 32]),
         };
 
         policy.access(&key1, 600);
@@ -448,8 +448,8 @@ mod tests {
         let cache = ResultCache::new(temp.path().to_path_buf(), 100).unwrap();
 
         let key = CacheKey {
-            module: ModuleId(1),
-            hash: ContentHash([0u8; 32]),
+            module: ModuleId::new(1),
+            hash: ContentHash::new([0u8; 32]),
         };
 
         // Miss
@@ -458,8 +458,8 @@ mod tests {
 
         // Set and hit
         let entry = CacheEntry {
-            module: ModuleId(1),
-            hash: ContentHash([0u8; 32]),
+            module: ModuleId::new(1),
+            hash: ContentHash::new([0u8; 32]),
             types: vec![],
             errors: vec![],
             timestamp: 0,
