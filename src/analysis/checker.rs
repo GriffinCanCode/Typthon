@@ -1,5 +1,10 @@
 use crate::core::types::{Type, TypeContext};
-use rustpython_parser::ast::{Mod, ModModule, Stmt, Expr, Constant, Operator};
+use crate::analysis::{
+    AdvancedTypeAnalyzer, EffectAnalyzer, RefinementAnalyzer,
+    BiInfer, ConstraintSolver, VarianceAnalyzer, Constraint
+};
+use rustpython_parser::ast::{Mod, ModModule, Stmt, Expr, ExprConstant, Constant, Operator};
+use num_traits::ToPrimitive;
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -18,20 +23,39 @@ impl std::fmt::Display for TypeError {
 pub struct TypeChecker {
     ctx: Arc<TypeContext>,
     errors: Vec<TypeError>,
+    advanced: AdvancedTypeAnalyzer,
+    effects: EffectAnalyzer,
+    refinements: RefinementAnalyzer,
+    bi_infer: BiInfer,
+    constraints: ConstraintSolver,
+    variance: VarianceAnalyzer,
 }
 
 impl TypeChecker {
     pub fn new() -> Self {
+        let ctx = Arc::new(TypeContext::new());
         Self {
-            ctx: Arc::new(TypeContext::new()),
+            effects: EffectAnalyzer::new(ctx.clone()),
+            bi_infer: BiInfer::new(ctx.clone()),
+            ctx,
             errors: Vec::new(),
+            advanced: AdvancedTypeAnalyzer::new(),
+            refinements: RefinementAnalyzer::new(),
+            constraints: ConstraintSolver::new(),
+            variance: VarianceAnalyzer::new(),
         }
     }
 
     pub fn with_context(ctx: Arc<TypeContext>) -> Self {
         Self {
+            effects: EffectAnalyzer::new(ctx.clone()),
+            bi_infer: BiInfer::new(ctx.clone()),
             ctx,
             errors: Vec::new(),
+            advanced: AdvancedTypeAnalyzer::new(),
+            refinements: RefinementAnalyzer::new(),
+            constraints: ConstraintSolver::new(),
+            variance: VarianceAnalyzer::new(),
         }
     }
 
@@ -39,8 +63,21 @@ impl TypeChecker {
         self.errors.clear();
 
         if let Mod::Module(ModModule { body, .. }) = module {
+            // Phase 1: Analyze effects across the module
+            let _effect_results = self.effects.analyze_module(module);
+
+            // Phase 2: Check statements with all analyzers
             for stmt in body {
                 self.check_stmt(stmt);
+            }
+
+            // Phase 3: Solve constraints
+            if let Err(err) = self.constraints.solve() {
+                self.errors.push(TypeError {
+                    message: format!("Constraint solving failed: {:?}", err),
+                    line: 0,
+                    col: 0,
+                });
             }
         }
 
@@ -77,13 +114,18 @@ impl TypeChecker {
                     self.ctx.fresh_var()
                 };
 
-                let func_type = Type::Function(param_types.clone(), Box::new(return_type.clone()));
-                self.ctx.set_type(func_def.name.to_string(), func_type);
+                // Create base function type
+                let mut func_type = Type::Function(param_types.clone(), Box::new(return_type.clone()));
 
                 // Check function body
                 for stmt in &func_def.body {
                     self.check_stmt(stmt);
                 }
+
+                // Annotate with effects if present
+                func_type = self.effects.annotate_function_type(&func_def.name, func_type);
+
+                self.ctx.set_type(func_def.name.to_string(), func_type);
             }
 
             Stmt::Assign(assign) => {
@@ -91,14 +133,31 @@ impl TypeChecker {
 
                 for target in &assign.targets {
                     if let Expr::Name(name_expr) = target {
-                        self.ctx.set_type(name_expr.id.to_string(), value_type.clone());
+                        // Check if there's an annotation
+                        if let Some(ann_type) = self.ctx.get_type(&name_expr.id) {
+                            // Use bidirectional checking with expected type
+                            if !self.bi_infer.check(&assign.value, &ann_type) {
+                                self.errors.push(TypeError {
+                                    message: format!("Type mismatch in assignment to {}", name_expr.id),
+                                    line: 0,
+                                    col: 0,
+                                });
+                            }
+                            // Add constraint for solver (subtype constraint)
+                            self.constraints.add_constraint(Constraint::Subtype(value_type.clone(), ann_type));
+                        } else {
+                            self.ctx.set_type(name_expr.id.to_string(), value_type.clone());
+                        }
                     }
                 }
             }
 
             Stmt::Return(ret) => {
                 if let Some(val) = &ret.value {
-                    self.infer_expr(val);
+                    let inferred = self.infer_expr(val);
+                    // If we know the expected return type, check against it
+                    // For now, just infer; full implementation would track current function context
+                    let _ = inferred;
                 }
             }
 
@@ -116,6 +175,7 @@ impl TypeChecker {
     }
 
     fn infer_expr(&mut self, expr: &Expr) -> Type {
+        // Use standard inference (BiInfer is used for checking, not inference)
         match expr {
             Expr::Constant(const_expr) => {
                 match &const_expr.value {
@@ -236,6 +296,10 @@ impl TypeChecker {
                 "bytes" => Type::Bytes,
                 "None" => Type::None,
                 "Any" => Type::Any,
+                // Check for common refinement types
+                "Positive" => RefinementAnalyzer::positive_int(),
+                "Negative" => RefinementAnalyzer::negative_int(),
+                "NonEmpty" => RefinementAnalyzer::non_empty_str(),
                 _ => Type::Class(name_expr.id.to_string()),
             },
 
@@ -255,6 +319,29 @@ impl TypeChecker {
                             }
                             Type::Dict(Box::new(Type::Any), Box::new(Type::Any))
                         }
+                        // Advanced type annotations
+                        "EffectType" => {
+                            // Parse effect type annotation
+                            let base = self.type_from_annotation(&subscript.slice);
+                            base // For now, return base type; effects added via decorator analysis
+                        }
+                        "RefinementType" => {
+                            // Parse refinement type annotation
+                            self.type_from_annotation(&subscript.slice)
+                        }
+                        "RecursiveType" => {
+                            // Handle recursive type annotation
+                            if let Expr::Constant(c) = &*subscript.slice {
+                                if let Constant::Str(name) = &c.value {
+                                    // Register as recursive type placeholder
+                                    Type::Class(name.to_string())
+                                } else {
+                                    Type::Any
+                                }
+                            } else {
+                                Type::Any
+                            }
+                        }
                         _ => Type::Generic(name_expr.id.to_string(), vec![self.type_from_annotation(&subscript.slice)]),
                     }
                 } else {
@@ -272,8 +359,70 @@ impl TypeChecker {
                 }
             }
 
+            Expr::Call(call) => {
+                // Handle type constructor calls like Bounded(0, 100)
+                if let Expr::Name(name) = &*call.func {
+                    match name.id.as_str() {
+                        "Bounded" => {
+                            if call.args.len() == 2 {
+                                if let (Expr::Constant(ExprConstant { value: Constant::Int(min), .. }),
+                                        Expr::Constant(ExprConstant { value: Constant::Int(max), .. })) =
+                                    (&call.args[0], &call.args[1]) {
+                                    // Convert BigInt to i64
+                                    if let (Some(min_i64), Some(max_i64)) = (min.to_i64(), max.to_i64()) {
+                                        return RefinementAnalyzer::bounded_int(min_i64, max_i64);
+                                    }
+                                }
+                            }
+                            Type::Int
+                        }
+                        "effect" | "refine" | "dependent" | "newtype" | "recursive" => {
+                            // These are constructor calls; parse the result
+                            Type::Any
+                        }
+                        _ => Type::Any,
+                    }
+                } else {
+                    Type::Any
+                }
+            }
+
             _ => Type::Any,
         }
+    }
+
+    /// Get effects for a function
+    pub fn get_function_effects(&self, name: &str) -> Option<crate::core::types::EffectSet> {
+        self.effects.get_function_effects(name).cloned()
+    }
+
+    /// Check if a recursive type is well-formed
+    pub fn check_recursive_type(&mut self, ty: &Type) -> bool {
+        self.advanced.is_productive(ty)
+    }
+
+    /// Validate a value against a refinement type
+    pub fn validate_refinement(&self, value: &serde_json::Value, ty: &Type) -> bool {
+        if let Type::Refinement(_, pred) = ty {
+            self.refinements.validate(value, pred)
+        } else {
+            true
+        }
+    }
+
+    /// Register a recursive type definition
+    pub fn define_recursive(&mut self, name: String, body: Type) -> Type {
+        self.advanced.define_recursive(name, body)
+    }
+
+    /// Use bidirectional type checking for an expression
+    pub fn bi_check(&mut self, expr: &Expr, expected: &Type) -> bool {
+        self.bi_infer.check(expr, expected)
+    }
+
+    /// Add a type constraint for solving
+    pub fn add_constraint(&mut self, constraint: Constraint) {
+        self.constraints.add_constraint(constraint);
     }
 }
 

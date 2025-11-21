@@ -36,12 +36,9 @@ class RefinementType:
 
     def validate(self, value: Any) -> bool:
         """Validate value against predicate (runtime check)."""
-        try:
-            # Simple evaluation for basic predicates
-            namespace = {'value': value, 'len': len, 'abs': abs}
-            return eval(self.predicate.replace('value', 'value'), namespace)
-        except:
-            return False
+        # Import here to avoid circular dependency
+        from typthon.core.validator import validate_refinement_type
+        return validate_refinement_type(value, self.base_type, self.predicate)
 
 
 class DependentType:
