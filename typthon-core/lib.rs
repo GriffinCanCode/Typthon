@@ -35,6 +35,7 @@ pub use compiler::{
 
 pub use infrastructure::{
     IncrementalEngine, DependencyGraph, ResultCache, ParallelAnalyzer,
-    PerformanceMetrics
+    PerformanceMetrics, LogConfig, LogFormat, LogOutput, init_logging,
+    init_dev_logging, init_prod_logging
 };
 

@@ -1,18 +1,40 @@
 use rustpython_parser::{parse, Mode};
 use rustpython_parser::ast::{Mod, ModExpression, Expr};
+use tracing::{debug, error, info, instrument};
 
 pub type ParseError = String;
 
+#[instrument(skip(source), fields(source_len = source.len()))]
 pub fn parse_module(source: &str) -> Result<Mod, ParseError> {
-    parse(source, Mode::Module, "<string>")
-        .map_err(|e| format!("Parse error: {}", e))
+    debug!("Parsing module");
+    match parse(source, Mode::Module, "<string>") {
+        Ok(ast) => {
+            info!("Successfully parsed module");
+            Ok(ast)
+        }
+        Err(e) => {
+            error!(error = %e, "Failed to parse module");
+            Err(format!("Parse error: {}", e))
+        }
+    }
 }
 
+#[instrument(skip(source), fields(source_len = source.len()))]
 pub fn parse_expression(source: &str) -> Result<Expr, ParseError> {
+    debug!("Parsing expression");
     match parse(source, Mode::Expression, "<string>") {
-        Ok(Mod::Expression(ModExpression { body, .. })) => Ok(*body),
-        Ok(_) => Err("Expected expression".to_string()),
-        Err(e) => Err(format!("Parse error: {}", e)),
+        Ok(Mod::Expression(ModExpression { body, .. })) => {
+            info!("Successfully parsed expression");
+            Ok(*body)
+        }
+        Ok(_) => {
+            error!("Expected expression, got different AST node");
+            Err("Expected expression".to_string())
+        }
+        Err(e) => {
+            error!(error = %e, "Failed to parse expression");
+            Err(format!("Parse error: {}", e))
+        }
     }
 }
 

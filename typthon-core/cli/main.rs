@@ -1,7 +1,8 @@
-use typthon::{TypeChecker, TypeContext, parse_module};
+use typthon::{TypeChecker, TypeContext, parse_module, init_dev_logging, LogConfig, LogFormat, LogOutput};
 use std::sync::Arc;
 use std::fs;
 use std::path::PathBuf;
+use tracing::{debug, error, info, Level};
 
 #[derive(Debug)]
 struct Config {
@@ -73,13 +74,21 @@ fn print_errors(errors: &[String], file: &PathBuf, config: &Config) {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize logging early
+    let _guard = init_dev_logging();
+
+    info!("Typthon CLI starting");
+
     let config = match Config::from_args() {
         Ok(c) => c,
         Err(e) => {
+            error!(error = %e, "Failed to parse CLI arguments");
             eprintln!("{}", e);
             std::process::exit(1);
         }
     };
+
+    debug!(files = ?config.files, strict = config.strict, "Configuration loaded");
 
     let ctx = Arc::new(TypeContext::new());
     let mut checker = TypeChecker::with_context(ctx.clone());
@@ -87,9 +96,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut total_errors = 0;
 
     for file in &config.files {
+        info!(file = %file.display(), "Processing file");
+
         let source = match fs::read_to_string(file) {
             Ok(s) => s,
             Err(e) => {
+                error!(file = %file.display(), error = %e, "Failed to read file");
                 eprintln!("Error reading {}: {}", file.display(), e);
                 continue;
             }
@@ -98,6 +110,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let ast = match parse_module(&source) {
             Ok(ast) => ast,
             Err(e) => {
+                error!(file = %file.display(), error = %e, "Parse error");
                 eprintln!("Parse error in {}: {}", file.display(), e);
                 total_errors += 1;
                 continue;
@@ -107,14 +120,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let errors = checker.check(&ast);
         let error_strs: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
 
+        debug!(file = %file.display(), error_count = errors.len(), "Type checking complete");
         total_errors += error_strs.len();
         print_errors(&error_strs, file, &config);
     }
 
     if total_errors > 0 {
+        error!(total_errors, "Type checking failed");
         eprintln!("\nFound {} error(s)", total_errors);
         std::process::exit(1);
     } else {
+        info!("All type checks passed");
         if !config.no_color {
             println!("\x1b[32m✓ All checks passed\x1b[0m");
         } else {

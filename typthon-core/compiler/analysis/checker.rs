@@ -6,6 +6,7 @@ use crate::compiler::analysis::{
 use rustpython_parser::ast::{Mod, ModModule, Stmt, Expr, ExprConstant, Constant, Operator};
 use num_traits::ToPrimitive;
 use std::sync::Arc;
+use tracing::{debug, error, info, instrument, warn};
 
 #[derive(Debug, Clone)]
 pub struct TypeError {
@@ -33,6 +34,7 @@ pub struct TypeChecker {
 
 impl TypeChecker {
     pub fn new() -> Self {
+        debug!("Creating new TypeChecker");
         let ctx = Arc::new(TypeContext::new());
         Self {
             effects: EffectAnalyzer::new(ctx.clone()),
@@ -59,12 +61,16 @@ impl TypeChecker {
         }
     }
 
+    #[instrument(skip(self, module))]
     pub fn check(&mut self, module: &Mod) -> Vec<TypeError> {
+        info!("Starting type checking");
         self.errors.clear();
 
         if let Mod::Module(ModModule { body, .. }) = module {
             // Phase 1: Analyze effects across the module (killer feature!)
+            debug!("Phase 1: Analyzing effects");
             let effect_results = self.effects.analyze_module(module);
+            info!(functions_analyzed = effect_results.len(), "Effect analysis complete");
 
             // Store effect analysis results for later use
             for (_func_name, _effects) in &effect_results {
@@ -72,20 +78,26 @@ impl TypeChecker {
             }
 
             // Phase 2: Check statements with all analyzers
+            debug!(statements = body.len(), "Phase 2: Checking statements");
             for stmt in body {
                 self.check_stmt(stmt);
             }
 
             // Phase 3: Solve constraints
+            debug!("Phase 3: Solving constraints");
             if let Err(err) = self.constraints.solve() {
+                error!(error = ?err, "Constraint solving failed");
                 self.errors.push(TypeError {
                     message: format!("Constraint solving failed: {:?}", err),
                     line: 0,
                     col: 0,
                 });
+            } else {
+                info!("Constraint solving complete");
             }
         }
 
+        info!(error_count = self.errors.len(), "Type checking complete");
         self.errors.clone()
     }
 

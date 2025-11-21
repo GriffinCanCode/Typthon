@@ -13,9 +13,11 @@ import (
 // Phase 1: IR is already in SSA form (single block, no phi nodes needed)
 // Future: Full SSA with dominance frontiers for control flow
 func Convert(prog *ir.Program) *Program {
+	logger.Debug("Converting IR to SSA", "functions", len(prog.Functions))
 	ssaProg := &Program{}
 
 	for _, irFn := range prog.Functions {
+		logger.Debug("Converting function to SSA", "name", irFn.Name, "blocks", len(irFn.Blocks))
 		ssaFn := &Function{
 			Name: irFn.Name,
 		}
@@ -32,10 +34,12 @@ func Convert(prog *ir.Program) *Program {
 
 		// Build CFG edges
 		buildCFG(ssaFn)
+		logger.LogSSAGeneration(irFn.Name, len(ssaFn.Blocks))
 
 		ssaProg.Functions = append(ssaProg.Functions, ssaFn)
 	}
 
+	logger.Info("SSA conversion complete", "functions", len(ssaProg.Functions))
 	return ssaProg
 }
 
