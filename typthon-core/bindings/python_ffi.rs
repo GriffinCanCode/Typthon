@@ -1,15 +1,23 @@
-//! Typthon - A high-performance gradual type system for Python
-//!
-//! This is the main library entry point that wraps the typthon-core module.
+// Core modules
+pub mod core;
+pub mod analysis;
+pub mod ast;
+pub mod errors;
+pub mod frontend;
+pub mod ffi;
+pub mod performance;
 
-// Include the core module from the typthon-core directory
-#[path = "../typthon-core/lib.rs"]
-mod typthon_core;
+// Re-export commonly used items
+pub use core::{Type, TypeContext};
+pub use analysis::{TypeChecker, InferenceEngine, BiInfer, Constraint, ConstraintSolver};
+pub use ast::{AstVisitor, DefaultWalker};
+pub use errors::{TypeError, ErrorKind, SourceLocation, ErrorCollector};
+pub use frontend::{parse_module, cli_main, Config};
+pub use performance::{
+    IncrementalEngine, DependencyGraph, ResultCache, ParallelAnalyzer,
+    PerformanceMetrics, PerformanceConfig
+};
 
-// Re-export everything from typthon-core
-pub use typthon_core::*;
-
-// Python bindings (when enabled)
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
@@ -47,13 +55,15 @@ fn check_effects(source: String) -> PyResult<std::collections::HashMap<String, V
         .map_err(|e| PyErr::new::<pyo3::exceptions::PySyntaxError, _>(e.to_string()))?;
 
     let ctx = std::sync::Arc::new(TypeContext::new());
-    let mut analyzer = typthon_core::compiler::analysis::EffectAnalyzer::new(ctx);
+    let mut analyzer = crate::compiler::analysis::EffectAnalyzer::new(ctx);
     let effects = analyzer.analyze_module(&ast);
 
+    // Convert EffectSet to detailed effect strings
     Ok(effects.iter().map(|(k, effect_set)| {
         let effect_strings: Vec<String> = if effect_set.is_pure() {
             vec!["pure".to_string()]
         } else {
+            // Extract individual effects from EffectSet
             let effects_str = format!("{:?}", effect_set);
             vec![effects_str]
         };
@@ -82,7 +92,7 @@ fn get_function_type_with_effects(source: String, func_name: String) -> PyResult
 #[cfg(feature = "python")]
 #[pyfunction]
 fn validate_refinement(value: String, predicate: String) -> PyResult<bool> {
-    let analyzer = typthon_core::compiler::analysis::RefinementAnalyzer::new();
+    let analyzer = crate::compiler::analysis::RefinementAnalyzer::new();
 
     let json_val: serde_json::Value = serde_json::from_str(&value)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
@@ -96,6 +106,8 @@ fn validate_refinement(value: String, predicate: String) -> PyResult<bool> {
 #[cfg(feature = "python")]
 #[pyfunction]
 fn check_recursive_type(_type_def: String) -> PyResult<bool> {
+    // Parse and check if recursive type is well-formed (productive)
+    // For now, return true; full implementation would parse the type_def
     Ok(true)
 }
 
@@ -136,6 +148,7 @@ impl TypeValidator {
             if effects.is_pure() {
                 Ok(vec!["pure".to_string()])
             } else {
+                // Parse the debug format to extract individual effects
                 let effects_str = format!("{:?}", effects);
                 Ok(vec![effects_str])
             }
@@ -155,6 +168,8 @@ impl TypeValidator {
     }
 
     fn validate_refinement_value(&self, _value: String, _type_str: String) -> PyResult<bool> {
+        // Parse type_str to get Type; for now, just check basic types
+        // Full implementation would parse the type annotation
         Ok(true)
     }
 }
@@ -171,3 +186,4 @@ fn _core(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<TypeValidator>()?;
     Ok(())
 }
+

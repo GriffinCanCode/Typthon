@@ -10,7 +10,7 @@ crate-type = ["cdylib", "rlib"]
 
 [[bin]]
 name = "typthon"
-path = "src/bin/typthon.rs"
+path = "typthon-core/cli/main.rs"
 required-features = []
 
 [features]
@@ -50,11 +50,21 @@ proptest = "1.4"
 
 [[bench]]
 name = "simd"
+path = "typthon-core/benches/simd.rs"
 harness = false
 
 [[bench]]
 name = "incremental"
+path = "typthon-core/benches/incremental.rs"
 harness = false
+
+[[test]]
+name = "test_protocol_checking"
+path = "typthon-core/tests/test_protocol_checking.rs"
+
+[[test]]
+name = "test_attr_resolution"
+path = "typthon-core/tests/test_attr_resolution.rs"
 
 [build-dependencies]
 cc = "1.0"

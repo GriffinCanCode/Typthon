@@ -34,7 +34,7 @@ dev = [
 ]
 
 [tool.maturin]
-python-source = "python"
+python-source = "typthon-core/runtime/python"
 module-name = "typthon._core"
 features = ["pyo3/extension-module"]
 

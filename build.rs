@@ -8,9 +8,9 @@ fn main() {
         .cpp(true)
         .flag_if_supported("-std=c++17")
         .flag_if_supported("-O3")
-        .include("cpp/include")
-        .file("cpp/src/core/types.cpp")
-        .file("cpp/src/ffi/ffi.cpp");
+        .include("typthon-core/runtime/cpp/include")
+        .file("typthon-core/runtime/cpp/src/core/types.cpp")
+        .file("typthon-core/runtime/cpp/src/ffi/ffi.cpp");
 
     // Architecture-specific SIMD optimizations
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
@@ -43,10 +43,10 @@ fn main() {
         println!("cargo:rustc-link-lib=stdc++");
     }
 
-    println!("cargo:rerun-if-changed=cpp/include/typthon/core/types.hpp");
-    println!("cargo:rerun-if-changed=cpp/src/core/types.cpp");
-    println!("cargo:rerun-if-changed=cpp/include/typthon/ffi/ffi.hpp");
-    println!("cargo:rerun-if-changed=cpp/src/ffi/ffi.cpp");
-    println!("cargo:rerun-if-changed=cpp/include/typthon/typthon.hpp");
+    println!("cargo:rerun-if-changed=typthon-core/runtime/cpp/include/typthon/core/types.hpp");
+    println!("cargo:rerun-if-changed=typthon-core/runtime/cpp/src/core/types.cpp");
+    println!("cargo:rerun-if-changed=typthon-core/runtime/cpp/include/typthon/ffi/ffi.hpp");
+    println!("cargo:rerun-if-changed=typthon-core/runtime/cpp/src/ffi/ffi.cpp");
+    println!("cargo:rerun-if-changed=typthon-core/runtime/cpp/include/typthon/typthon.hpp");
 }
 

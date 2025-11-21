@@ -38,16 +38,44 @@ Typthon is built on **first principles** from mathematics and computer science:
 └─────────────────────────────────────────────────────────┘
 ```
 
+## Project Structure
+
+The project is organized **semantically by functionality** rather than by implementation language:
+
+```
+typthon-core/
+├── compiler/           # Core compiler infrastructure
+│   ├── frontend/       # Parsing, configuration, CLI argument handling
+│   ├── ast/            # Abstract syntax tree, visitors, walkers, location tracking
+│   ├── analysis/       # Type checking, inference, effects, protocols, constraints
+│   ├── types/          # Core type system definitions, type context, internment
+│   └── errors/         # Error handling, reporting, suggestions
+├── runtime/            # Runtime support (language-agnostic organization)
+│   ├── python/         # Python runtime API and validation
+│   └── cpp/            # C++ FFI and performance optimizations
+├── bindings/           # FFI layer between Rust and other languages
+├── cli/                # Command-line interface (main.rs)
+└── infrastructure/     # Performance optimizations
+    ├── arena.rs        # Memory arena allocation
+    ├── cache.rs        # Result caching
+    ├── incremental.rs  # Incremental compilation
+    ├── metrics.rs      # Performance tracking
+    └── parallel.rs     # Parallel analysis
+```
+
 ## Layer Responsibilities
 
-### Python Layer
-- **Purpose**: User-facing API, runtime validation
-- **Key Files**: `python/typthon/*.py`
-- **Design**: Minimal overhead, graceful degradation
-- **Innovation**: Effect types, dependent types lite
+### Compiler Layer
+- **Purpose**: Core type checking engine, inference, analysis
+- **Key Files**: `typthon-core/compiler/**/*.rs`
+- **Design**: Modular, cacheable, parallel-friendly
+- **Innovation**: Bidirectional inference, effect tracking, protocol checking
 
-### Rust Core
-- **Purpose**: Type checking engine, inference, analysis
+### Runtime Layer
+- **Purpose**: Language-specific runtime support and APIs
+- **Python**: `typthon-core/runtime/python/` - User-facing API, runtime validation
+- **C++**: `typthon-core/runtime/cpp/` - Performance-critical operations
+- **Design**: Minimal overhead, graceful degradation
 - **Key Files**: `src/*.rs`
 - **Design**: Fearless concurrency, zero-cost abstractions
 - **Innovation**: Flow-sensitive analysis, smart union simplification
@@ -66,16 +94,16 @@ Typthon is built on **first principles** from mathematics and computer science:
 enum Type {
     // Primitives
     Int, Float, Str, Bool, Bytes, None, Any, Never,
-    
+
     // Containers (structural subtyping)
     List(Box<Type>),
     Tuple(Vec<Type>),
     Dict(Box<Type>, Box<Type>),
     Set(Box<Type>),
-    
+
     // Functions (contravariant params, covariant return)
     Function(Vec<Type>, Box<Type>),
-    
+
     // Advanced
     Union(Vec<Type>),        // A | B
     Intersection(Vec<Type>), // A & B

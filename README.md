@@ -4,29 +4,48 @@ A high-performance gradual type system for Python with blazing-fast static analy
 
 ## Architecture
 
+### Project Structure
+
+The project is organized semantically by functionality rather than implementation language:
+
+```
+typthon-core/
+├── compiler/           # Core compiler components
+│   ├── frontend/       # Parsing, configuration, CLI argument handling
+│   ├── ast/            # Abstract syntax tree, visitors, walkers
+│   ├── analysis/       # Type checking, inference, effects, protocols
+│   ├── types/          # Core type system definitions
+│   └── errors/         # Error handling and reporting
+├── runtime/            # Runtime support (all languages)
+│   ├── python/         # Python runtime and API
+│   └── cpp/            # C++ FFI and optimizations
+├── bindings/           # FFI layer between languages
+├── cli/                # Command-line interface
+└── infrastructure/     # Performance, caching, parallelization
+
+Additional:
+├── examples/           # Usage examples
+├── tests/              # Test suite
+├── benches/            # Performance benchmarks
+└── docs/               # Documentation
+```
+
 **Multi-Layer Performance Design:**
 
 ```
 ┌─────────────────────────────────────────┐
 │  Python API Layer (DSL + Validation)    │
-│  • Elegant decorator syntax             │
-│  • Runtime type validation              │
-│  • Developer-friendly errors            │
+│  typthon-core/runtime/python/           │
 └──────────────────┬──────────────────────┘
                    │
 ┌──────────────────▼──────────────────────┐
-│  Rust Core (Type Checker Engine)        │
-│  • AST parsing & analysis               │
-│  • Type inference engine                │
-│  • Constraint solving                   │
-│  • PyO3 bindings                        │
+│  Rust Compiler (Type Checker Engine)    │
+│  typthon-core/compiler/                 │
 └──────────────────┬──────────────────────┘
                    │
 ┌──────────────────▼──────────────────────┐
-│  C++ Performance Layer (Set Operations) │
-│  • Bit vector operations                │
-│  • Cache-optimized algorithms           │
-│  • SIMD where applicable                │
+│  C++ Performance Layer (Optimizations)  │
+│  typthon-core/runtime/cpp/              │
 └─────────────────────────────────────────┘
 ```
 
