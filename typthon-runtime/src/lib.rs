@@ -22,11 +22,14 @@ pub extern "C" fn typthon_runtime_init() {
     // Initialize global state
     allocator::init();
     gc::init();
+    builtins::init();
+    interop::init();
 }
 
 /// Runtime cleanup
 #[no_mangle]
 pub extern "C" fn typthon_runtime_cleanup() {
+    builtins::cleanup();
     gc::cleanup();
 }
 
