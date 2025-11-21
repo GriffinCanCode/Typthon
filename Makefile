@@ -1,4 +1,4 @@
-.PHONY: build install test clean dev lint format cli check-cli
+.PHONY: build install test clean dev lint format cli check-cli cicd-dryrun cicd-test
 
 # Build the package
 build:
@@ -62,4 +62,12 @@ docs:
 # Publish to PyPI
 publish: build
 	maturin publish
+
+# CI/CD dry run (requires Docker)
+cicd-dryrun:
+	act --container-architecture linux/amd64 -j test --matrix os:ubuntu-latest --matrix python-version:3.10 --dryrun
+
+# CI/CD local test (requires Docker)
+cicd-test:
+	act --container-architecture linux/amd64 -j test --matrix os:ubuntu-latest --matrix python-version:3.10
 
