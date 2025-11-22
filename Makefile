@@ -1,11 +1,23 @@
-.PHONY: build install test clean dev lint format cli check-cli cicd-dryrun cicd-test
+.PHONY: build install test clean dev lint format cli check-cli cicd-dryrun cicd-test builder-build setup
 
-# Build the package
+# Setup development environment (install all dependencies)
+setup:
+	@./scripts/setup.sh
+
+# Build all targets using builder
 build:
+	builder build
+
+# Build CLI binary using builder
+cli:
+	builder build //typthon-compiler:typthon
+
+# Legacy maturin build (if needed)
+build-maturin:
 	maturin build --release
 
-# Build CLI binary
-cli:
+# Legacy cargo build (if needed)
+cli-cargo:
 	cargo build --release --bin typthon
 
 # Install in development mode
@@ -30,6 +42,7 @@ bench:
 
 # Clean build artifacts
 clean:
+	builder clean
 	rm -rf target/
 	rm -rf build/
 	rm -rf dist/

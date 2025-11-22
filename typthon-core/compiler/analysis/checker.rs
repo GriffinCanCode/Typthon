@@ -32,6 +32,7 @@ pub struct TypeChecker {
     variance: VarianceAnalyzer,
     class_attributes: std::collections::HashMap<String, std::collections::HashMap<String, Type>>,
     current_class: Option<String>,
+    current_function_return_type: Option<Type>,
 }
 
 impl TypeChecker {
@@ -49,6 +50,7 @@ impl TypeChecker {
             variance: VarianceAnalyzer::new(),
             class_attributes: std::collections::HashMap::new(),
             current_class: None,
+            current_function_return_type: None,
         }
     }
 
@@ -64,6 +66,7 @@ impl TypeChecker {
             variance: VarianceAnalyzer::new(),
             class_attributes: std::collections::HashMap::new(),
             current_class: None,
+            current_function_return_type: None,
         }
     }
 
@@ -130,20 +133,34 @@ impl TypeChecker {
                     })
                     .collect();
 
-                // Infer return type
-                let return_type = if let Some(ret) = &func_def.returns {
-                    self.type_from_annotation(ret)
+                // Infer return type (only check if explicitly annotated)
+                let (return_type, has_return_annotation) = if let Some(ret) = &func_def.returns {
+                    (self.type_from_annotation(ret), true)
                 } else {
-                    self.ctx.fresh_var()
+                    (self.ctx.fresh_var(), false)
                 };
 
                 // Create base function type
                 let base_func_type = Type::Function(param_types.clone(), Box::new(return_type.clone()));
 
+                // Set parameters in context for function body
+                for (arg, param_ty) in func_def.args.args.iter().zip(param_types.iter()) {
+                    self.ctx.set_type(arg.def.arg.to_string(), param_ty.clone());
+                }
+
+                // Track current function return type for validation (only if annotated)
+                let prev_return_type = self.current_function_return_type.take();
+                if has_return_annotation {
+                    self.current_function_return_type = Some(return_type.clone());
+                }
+
                 // Check function body and infer effects
                 for stmt in &func_def.body {
                     self.check_stmt(stmt);
                 }
+
+                // Restore previous return type
+                self.current_function_return_type = prev_return_type;
 
                 // Annotate with inferred effects (killer feature!)
                 let func_type = self.effects.annotate_function_type(&func_def.name, base_func_type);
@@ -233,9 +250,28 @@ impl TypeChecker {
             Stmt::Return(ret) => {
                 if let Some(val) = &ret.value {
                     let inferred = self.infer_expr(val);
-                    // If we know the expected return type, check against it
-                    // For now, just infer; full implementation would track current function context
-                    let _ = inferred;
+                    // Check against expected return type
+                    if let Some(expected) = &self.current_function_return_type {
+                        if !inferred.is_subtype(expected) {
+                            self.errors.push(TypeError {
+                                message: format!(
+                                    "Return type mismatch: expected {:?}, got {:?}",
+                                    expected, inferred
+                                ),
+                                line: 0,
+                                col: 0,
+                            });
+                        }
+                    }
+                } else if let Some(expected) = &self.current_function_return_type {
+                    // Empty return, check if function expects None
+                    if !matches!(expected, Type::None) {
+                        self.errors.push(TypeError {
+                            message: format!("Expected return value of type {:?}, got None", expected),
+                            line: 0,
+                            col: 0,
+                        });
+                    }
                 }
             }
 
@@ -267,9 +303,72 @@ impl TypeChecker {
                 self.current_class = prev_class;
             }
 
-            Stmt::If(_) | Stmt::While(_) | Stmt::For(_) | Stmt::With(_) => {
-                // Control flow statements - basic traversal
-                // Full implementation would track branches for type narrowing
+            Stmt::For(for_stmt) => {
+                // Infer the type of the iterable
+                let iterable_ty = self.infer_expr(&for_stmt.iter);
+
+                // Get the element type from the iterable
+                let elem_ty = match iterable_ty {
+                    Type::List(elem) => *elem,
+                    Type::Set(elem) => *elem,
+                    Type::Tuple(elems) if !elems.is_empty() => {
+                        // For tuple, use union of all element types
+                        Type::union(elems)
+                    }
+                    Type::Dict(key, _) => *key, // Iterating over dict gives keys
+                    Type::Str => Type::Str, // String iteration gives strings
+                    _ => self.ctx.fresh_var(),
+                };
+
+                // Set the loop variable type
+                if let Expr::Name(name_expr) = &*for_stmt.target {
+                    self.ctx.set_type(name_expr.id.to_string(), elem_ty);
+                }
+
+                // Check the loop body
+                for stmt in &for_stmt.body {
+                    self.check_stmt(stmt);
+                }
+
+                // Check orelse clause if present
+                for stmt in &for_stmt.orelse {
+                    self.check_stmt(stmt);
+                }
+            }
+
+            Stmt::While(while_stmt) => {
+                // Check the condition
+                let _cond_ty = self.infer_expr(&while_stmt.test);
+
+                // Check the body
+                for stmt in &while_stmt.body {
+                    self.check_stmt(stmt);
+                }
+
+                // Check orelse clause if present
+                for stmt in &while_stmt.orelse {
+                    self.check_stmt(stmt);
+                }
+            }
+
+            Stmt::If(if_stmt) => {
+                // Check the condition
+                let _cond_ty = self.infer_expr(&if_stmt.test);
+
+                // Check the if body
+                for stmt in &if_stmt.body {
+                    self.check_stmt(stmt);
+                }
+
+                // Check elif/else clauses
+                for stmt in &if_stmt.orelse {
+                    self.check_stmt(stmt);
+                }
+            }
+
+            Stmt::With(_) => {
+                // Context manager - basic traversal for now
+                // Full implementation would track resource types
             }
 
             _ => {}
@@ -387,12 +486,50 @@ impl TypeChecker {
             }
 
             Expr::ListComp(list_comp) => {
+                // Handle generators to set loop variable types
+                for generator in &list_comp.generators {
+                    let iterable_ty = self.infer_expr(&generator.iter);
+
+                    // Get element type from iterable
+                    let elem_ty = match iterable_ty {
+                        Type::List(elem) => *elem,
+                        Type::Set(elem) => *elem,
+                        Type::Tuple(elems) if !elems.is_empty() => Type::union(elems),
+                        Type::Dict(key, _) => *key,
+                        Type::Str => Type::Str,
+                        _ => self.ctx.fresh_var(),
+                    };
+
+                    // Set loop variable type
+                    if let Expr::Name(name_expr) = &generator.target {
+                        self.ctx.set_type(name_expr.id.to_string(), elem_ty);
+                    }
+                }
+
                 // Infer type of list comprehension from element expression
                 let elem_type = self.infer_expr(&list_comp.elt);
                 Type::List(Box::new(elem_type))
             }
 
             Expr::DictComp(dict_comp) => {
+                // Handle generators to set loop variable types
+                for generator in &dict_comp.generators {
+                    let iterable_ty = self.infer_expr(&generator.iter);
+
+                    let elem_ty = match iterable_ty {
+                        Type::List(elem) => *elem,
+                        Type::Set(elem) => *elem,
+                        Type::Tuple(elems) if !elems.is_empty() => Type::union(elems),
+                        Type::Dict(key, _) => *key,
+                        Type::Str => Type::Str,
+                        _ => self.ctx.fresh_var(),
+                    };
+
+                    if let Expr::Name(name_expr) = &generator.target {
+                        self.ctx.set_type(name_expr.id.to_string(), elem_ty);
+                    }
+                }
+
                 // Infer type of dict comprehension
                 let key_type = self.infer_expr(&dict_comp.key);
                 let value_type = self.infer_expr(&dict_comp.value);
@@ -400,6 +537,24 @@ impl TypeChecker {
             }
 
             Expr::SetComp(set_comp) => {
+                // Handle generators to set loop variable types
+                for generator in &set_comp.generators {
+                    let iterable_ty = self.infer_expr(&generator.iter);
+
+                    let elem_ty = match iterable_ty {
+                        Type::List(elem) => *elem,
+                        Type::Set(elem) => *elem,
+                        Type::Tuple(elems) if !elems.is_empty() => Type::union(elems),
+                        Type::Dict(key, _) => *key,
+                        Type::Str => Type::Str,
+                        _ => self.ctx.fresh_var(),
+                    };
+
+                    if let Expr::Name(name_expr) = &generator.target {
+                        self.ctx.set_type(name_expr.id.to_string(), elem_ty);
+                    }
+                }
+
                 // Infer type of set comprehension
                 let elem_type = self.infer_expr(&set_comp.elt);
                 Type::Set(Box::new(elem_type))
@@ -444,10 +599,39 @@ impl TypeChecker {
             Expr::Call(call_expr) => {
                 let func_ty = self.infer_expr(&call_expr.func);
 
-                if let Type::Function(_, ret) = func_ty {
-                    *ret
-                } else {
-                    self.ctx.fresh_var()
+                match func_ty {
+                    Type::Function(params, ret) => {
+                        // Check argument count
+                        if call_expr.args.len() != params.len() {
+                            self.errors.push(TypeError {
+                                message: format!(
+                                    "Function call argument count mismatch: expected {}, got {}",
+                                    params.len(),
+                                    call_expr.args.len()
+                                ),
+                                line: 0,
+                                col: 0,
+                            });
+                        }
+
+                        // Check argument types
+                        for (i, (arg, param_ty)) in call_expr.args.iter().zip(params.iter()).enumerate() {
+                            let arg_ty = self.infer_expr(arg);
+                            if !arg_ty.is_subtype(param_ty) {
+                                self.errors.push(TypeError {
+                                    message: format!(
+                                        "Argument {} type mismatch: expected {:?}, got {:?}",
+                                        i, param_ty, arg_ty
+                                    ),
+                                    line: 0,
+                                    col: 0,
+                                });
+                            }
+                        }
+
+                        *ret
+                    }
+                    _ => self.ctx.fresh_var()
                 }
             }
 

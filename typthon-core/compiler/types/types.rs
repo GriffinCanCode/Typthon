@@ -289,6 +289,9 @@ impl Type {
             (Never, _) => true,
             (a, b) if a == b => true,
 
+            // Type variables are compatible with any type (will be unified later)
+            (Var(_), _) | (_, Var(_)) => true,
+
             // Union handling: A <: B | C if A <: B or A <: C
             (a, Union(types)) => types.iter().any(|t| a.is_subtype(t)),
             (Union(types), b) => types.iter().all(|t| t.is_subtype(b)),
